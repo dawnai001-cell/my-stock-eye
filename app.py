@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - 查價完全體 (含日期、全指標聯動)")
+st.title("📊 台股籌碼天眼 - 查價完全體 (副圖歸位、全指標聯動)")
 
 # =======================================================
 # 側邊欄控制面板
@@ -167,61 +167,53 @@ except:
 fig = make_subplots(
     rows=2, cols=1, 
     shared_xaxes=True, 
-    vertical_spacing=0.02,            
-    row_heights=[0.72, 0.28]
+    vertical_spacing=0.03,            
+    row_heights=[0.70, 0.30]
 )
 
-# 🎯 動態封裝：這次把第一個元素牢牢鎖定為「當日日期」
+# 🎯 後台資料打包
 custom_hover_strings = []
 for i in range(len(df)):
     lines = []
-    
-    # 1. 第一層：主圖疊加指標
     if "5日均線 (MA5)" in overlay_options:
-        lines.append(f"MA5:{df['MA5'].iloc[i]:.2f}")
+        lines.append(f"MA5: {df['MA5'].iloc[i]:.2f}")
     if "20日均線 (MA20)" in overlay_options:
-        lines.append(f"MA20:{df['MA20'].iloc[i]:.2f}")
+        lines.append(f"MA20: {df['MA20'].iloc[i]:.2f}")
     if "60日均線 (MA60)" in overlay_options:
-        lines.append(f"MA60:{df['MA60'].iloc[i]:.2f}")
+        lines.append(f"MA60: {df['MA60'].iloc[i]:.2f}")
     if "布林通道 (Bollinger)" in overlay_options:
-        lines.append(f"布林:{df['BB_Up'].iloc[i]:.2f}/{df['BB_Low'].iloc[i]:.2f}")
+        lines.append(f"布林: {df['BB_Up'].iloc[i]:.2f} / {df['BB_Low'].iloc[i]:.2f}")
     if "肯特納通道 (Keltner)" in overlay_options:
-        lines.append(f"肯特納:{df['KC_Up'].iloc[i]:.2f}/{df['KC_Low'].iloc[i]:.2f}")
+        lines.append(f"肯特納: {df['KC_Up'].iloc[i]:.2f} / {df['KC_Low'].iloc[i]:.2f}")
     if "拋物線指標 (SAR)" in overlay_options:
-        lines.append(f"SAR:{df['SAR'].iloc[i]:.2f}")
+        lines.append(f"SAR: {df['SAR'].iloc[i]:.2f}")
     
     overlay_text = "<br>".join(lines) if lines else "無疊加指標"
     
-    # 2. 第二層：副圖指標
     if sub_plot_choice == "📊 經典成交量":
-        sub_text = f"量:{df['Volume'].iloc[i]:.1f}張"
+        sub_text = f"量: {df['Volume'].iloc[i]:.1f} 張"
     elif sub_plot_choice == "⚡ 專業 KDJ 指標":
-        sub_text = f"K:{df['K'].iloc[i]:.1f} D:{df['D'].iloc[i]:.1f} J:{df['J'].iloc[i]:.1f}"
+        sub_text = f"K: {df['K'].iloc[i]:.1f} | D: {df['D'].iloc[i]:.1f} | J: {df['J'].iloc[i]:.1f}"
     else:
-        sub_text = f"OBV:{df['OBV'].iloc[i]:.1f} MA5:{df['OBV_MA5'].iloc[i]:.1f}"
+        sub_text = f"OBV: {df['OBV'].iloc[i]:.1f} | MA5: {df['OBV_MA5'].iloc[i]:.1f}"
         
-    # 3. 封裝：把「日期」作為最關鍵的資訊與後半段文字一起傳遞
-    # 這裡塞入兩個資訊：[日期字串, 疊加指標與副圖的綜合文字]
     custom_hover_strings.append([df['Date_Str'].iloc[i], f"{overlay_text}<br>--------------------<br>📊 {sub_text}"])
 
-# --------- 【主圖】 ---------
+# --------- 【主圖 (Row 1)】 ---------
 if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_B'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
 
-# 🎯 終極修正版 hovertemplate：
-# %{customdata[0]} 對應日期
-# %{customdata[1]} 對應指標數據
+# 主圖 K 線
 fig.add_trace(go.Candlestick(
     x=df['Date_Str'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     name='K線',
     customdata=custom_hover_strings,
-    hovertemplate="<b>%{customdata[0]}</b><br>開:%{open:.2f}<br>高:%{high:.2f}<br>低:%{low:.2f}<br>收:%{close:.2f}<br>--------------------<br>%{customdata[1]}<extra></extra>",
+    hovertemplate="<b>%{customdata[0]}</b><br>開: %{open:.2f}<br>高: %{high:.2f}<br>低: %{low:.2f}<br>收: %{close:.2f}<br>--------------------<br>%{customdata[1]}<extra></extra>",
     increasing_line_color='#ff3333', increasing_fillcolor='#ff3333',
     decreasing_line_color='#00cc66', decreasing_fillcolor='#00cc66'
 ), row=1, col=1)
 
-# 後台繪圖線條依然維持 skip，讓排版最乾淨
 if "5日均線 (MA5)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5', hoverinfo='skip'), row=1, col=1)
 if "20日均線 (MA20)" in overlay_options:
@@ -248,11 +240,12 @@ if "籌碼成本牆 (POC)" in overlay_options:
     fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_2, x1=df['Date_Str'].iloc[-1], y1=poc_2, line=dict(color="#ff6600", width=1.5, dash="dash"), row=1, col=1)
     fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_3, x1=df['Date_Str'].iloc[-1], y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"), row=1, col=1)
 
-# --------- 【副圖】 ---------
+# --------- 【副圖 (Row 2)】 ---------
+# 🎯 這裡修正了 row=2 的指定，確保副圖一定會乖乖畫在下方畫布！
 if sub_plot_choice == "📊 經典成交量":
     vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
     fig.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, marker_line_width=0, name='成交量(張)', hoverinfo='skip'), row=2, col=1)
-elif sub_plot_choice == "⚡ 專業 KDJ 指批":
+elif sub_plot_choice == "⚡ 專業 KDJ 指標":
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K', hoverinfo='skip'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D', hoverinfo='skip'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J', hoverinfo='skip'), row=2, col=1)
