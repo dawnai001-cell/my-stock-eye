@@ -160,6 +160,35 @@ try:
 except:
     poc_1 = df['Close'].mean(); poc_2 = poc_1; poc_3 = poc_1
 
+
+# ==============================================================================
+# 🎯 頂部固定「三竹專業數據列」（最新一日數據，免移游標，數字絕不遮擋）
+# ==============================================================================
+last_row = df.iloc[-1]
+last_date = df.index[-1].strftime('%Y-%m-%d')
+
+# 計算漲跌
+change = last_row['Close'] - df.iloc[-2]['Close']
+change_pct = (change / df.iloc[-2]['Close']) * 100
+color_label = "🔴" if change >= 0 else "🟢"
+color_style = "color:#ff3333;" if change >= 0 else "color:#00cc66;"
+
+# 渲染超好看的頂部橫向資訊列
+st.markdown(
+    f"""
+    <div style="background-color:#1e1e1e; padding:12px; border-radius:6px; margin-bottom:10px; border-left: 5px solid #ffcc00;">
+        <span style="color:#888888; font-size:14px;">📅 最新觀測日：<b>{last_date}</b></span> &nbsp;&nbsp;|&nbsp;&nbsp;
+        <span style="color:white; font-size:16px;">開：<b>{last_row['Open']:.2f}</b></span> &nbsp;&nbsp;
+        <span style="color:white; font-size:16px;">高：<b>{last_row['High']:.2f}</b></span> &nbsp;&nbsp;
+        <span style="color:white; font-size:16px;">低：<b>{last_row['Low']:.2f}</b></span> &nbsp;&nbsp;
+        <span style="font-size:16px; {color_style}">收：<b>{last_row['Close']:.2f} ({color_label}{change:.2f}, {change_pct:.2f}%)</b></span> &nbsp;&nbsp;|&nbsp;&nbsp;
+        <span style="color:#ffff00; font-size:16px;">量：<b>{last_row['Volume']:.1f} 張</b></span>
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
+
+
 # ==============================================================================
 # 🎨 畫布整合
 # ==============================================================================
@@ -175,21 +204,21 @@ if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_B'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
 
-# 🎯 核心秘密：自訂 hovertemplate，將資料打包進去，配合布局設定，滑鼠游標旁邊就不會噴出巨大的方塊
+# 🎯 核心修正：hoverinfo='skip'！徹底關閉滑鼠移動時圖表內彈出的任何討人厭灰色大方塊！
 fig.add_trace(go.Candlestick(
     x=df['Date_Str'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     name='K線',
-    hovertemplate="開:%{open}<br>高:%{high}<br>低:%{low}<br>收:%{close}<extra></extra>",
+    hoverinfo='skip', # 👈 乾乾淨淨，絕不遮擋
     increasing_line_color='#ff3333', increasing_fillcolor='#ff3333',
     decreasing_line_color='#00cc66', decreasing_fillcolor='#00cc66'
 ), row=1, col=1)
 
 if "5日均線 (MA5)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5', hovertemplate="MA5:%{y:.2f}<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5', hoverinfo='skip'), row=1, col=1)
 if "20日均線 (MA20)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA20'], line=dict(color='#e377c2', width=1.8), name='MA20', hovertemplate="MA20:%{y:.2f}<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA20'], line=dict(color='#e377c2', width=1.8), name='MA20', hoverinfo='skip'), row=1, col=1)
 if "60日均線 (MA60)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA60'], line=dict(color='#9467bd', width=2.0), name='MA60', hovertemplate="MA60:%{y:.2f}<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA60'], line=dict(color='#9467bd', width=2.0), name='MA60', hoverinfo='skip'), row=1, col=1)
 
 if "布林通道 (Bollinger)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['BB_Up'], line=dict(color='#ff4d4d', width=1, dash='dot'), name='布林上軌', hoverinfo='skip'), row=1, col=1)
@@ -215,52 +244,33 @@ if sub_plot_choice == "📊 經典成交量":
     vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
     fig.add_trace(go.Bar(
         x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, marker_line_width=0, name='成交量(張)',
-        hovertemplate="量:%{y:.1f}張<extra></extra>"
+        hoverinfo='skip'
     ), row=2, col=1)
 elif sub_plot_choice == "⚡ 專業 KDJ 指標":
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K', hovertemplate="K:%{y:.1f}<extra></extra>"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D', hovertemplate="D:%{y:.1f}<extra></extra>"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J', hovertemplate="J:%{y:.1f}<extra></extra>"), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K', hoverinfo='skip'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D', hoverinfo='skip'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J', hoverinfo='skip'), row=2, col=1)
 elif sub_plot_choice == "🌊 OBV 籌碼動能":
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV'], line=dict(color='#00ffff', width=1.5), name='OBV', hovertemplate="OBV:%{y:.1f}<extra></extra>"), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV'], line=dict(color='#00ffff', width=1.5), name='OBV', hoverinfo='skip'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV_MA5'], line=dict(color='#ffff00', width=1, dash='dot'), name='OBV_MA5', hoverinfo='skip'), row=2, col=1)
 
 # ==========================================
-# 📐 全局版面與 🎯 專業看盤懸浮窗重構
+# 📐 全局版面控制
 # ==========================================
 fig.update_layout(
     template="plotly_dark",
     xaxis_rangeslider_visible=False,
     xaxis2_rangeslider_visible=False,
-    height=620,
+    height=600,
     margin=dict(l=10, r=10, t=10, b=10),
     
-    # 🎯 大絕招 1：將懸浮模式改為 "x"，讓滑鼠游標旁邊只剩下一條垂直十字對齊線，絕不彈出大方塊遮擋 K 棒
+    # 🎯 只留準星線，全圖不彈出任何 Hover 標籤
     hovermode="x",
-    
-    # 🎯 大絕招 2：強制將所有數據面板固定在畫布左上角 (x=0, y=1)，偽裝成內嵌資訊列！
-    hoverlabel=dict(
-        bgcolor="rgba(30, 30, 30, 0.85)",   # 半透明黑底，充滿科技感
-        bordercolor="rgba(255, 255, 255, 0.1)",
-        font=dict(size=12, color="white", family="Courier New"),
-        align="left"
-    ),
     bargap=0.28,                       
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 
-# 💡 大絕招 3：利用類 TradingView 的靜態標籤，在左上角佔好位置引導數據
-fig.add_annotation(
-    text="📊 即時查價欄 ➔ 移動游標看左上角數據變化",
-    xref="paper", yref="paper",
-    x=0.005, y=0.99,
-    showarrow=False,
-    font=dict(size=11, color="#888888"),
-    align="left",
-    row=1, col=1
-)
-
-# 🚀 使用 category 模式：完全消滅所有年假與週末的空白斷層
+# 使用 category 模式
 fig.update_xaxes(type='category', tickangle=0, showgrid=True, gridcolor='rgba(255,255,255,0.05)', row=2, col=1)
 
 # 智慧標籤
@@ -276,13 +286,9 @@ fig.update_xaxes(tickmode='array', tickvals=tickvals, ticktext=ticktexts, row=2,
 fig.update_xaxes(type='category', showticklabels=False, row=1, col=1)
 fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.05)')
 
-# ⚡ 將游標的浮動標籤黏死在左上角 (關鍵核心：利用 Spikelines 十字線 + 固定錨點)
-fig.update_traces(
-    xaxis="x",
-    row=1, col=1
-)
+# ⚡ 只留下淡淡的垂直十字查價準星線，滑鼠滑過去指引方向，但不產生任何遮擋
 fig.update_xaxes(
-    showspikes=True, spikecolor="rgba(255, 255, 255, 0.3)", spikethickness=1, spikedash="dash", spikemode="across",
+    showspikes=True, spikecolor="rgba(255, 255, 255, 0.2)", spikethickness=1, spikedash="dash", spikemode="across",
     row=1, col=1
 )
 
