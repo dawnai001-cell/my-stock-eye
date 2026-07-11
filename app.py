@@ -11,7 +11,7 @@ st.title("📊 台股籌碼天眼 - 雲端網頁版系統")
 st.write("利用雲端伺服器進行數據渲染，完美避開手機閃退問題。")
 
 # =======================================================
-# 側邊欄控制面板 (Dropdown / Input / Slider)
+# 側邊欄控制面板
 # =======================================================
 st.sidebar.header("🛠️ 交易控制台")
 
@@ -19,10 +19,10 @@ ticker_input = st.sidebar.text_input("請輸入台股代號：", value="2356").s
 check_days = st.sidebar.slider("請選擇觀測天數：", min_value=5, max_value=90, value=20, step=5)
 
 st.sidebar.write("---")
-st.sidebar.info("💡 判讀小提示：\n1. POC 1 是大庄家核心成本防線。\n2. 當 OBV (青線) 跌破 MA5 (黃線)，代表短線資金加速撤退。")
+st.sidebar.info("💡 判讀小提示：\n1. 主圖 POC 1 是大庄家核心成本防線。\n2. 下方副圖分頁可自由切換指標，完全復刻三竹看盤體驗。")
 
 # ==========================================
-# 網路數據抓取 (拔除 cache，確保每次都徹底重算)
+# 網路數據抓取
 # ==========================================
 def fetch_data(ticker):
     try:
@@ -103,15 +103,10 @@ for i in range(1, len(df)):
         current_obv -= df['Volume'].iloc[i]
     obv_series.iloc[i] = current_obv
 
-p_min, p_max = df['Close'].min(), df['Close'].max()
-o_min, o_max = obv_series.min(), obv_series.max()
-if o_max != o_min:
-    df['OBV_Scaled'] = p_min + (obv_series - o_min) * (p_max - p_min) / (o_max - o_min)
-else:
-    df['OBV_Scaled'] = df['Close']
-df['OBV_MA5_Scaled'] = df['OBV_Scaled'].rolling(window=5).mean()
+df['OBV'] = obv_series
+df['OBV_MA5'] = df['OBV'].rolling(window=5).mean()
 
-# 籌碼牆計算 (徹底阻斷單一數值導致的 bins 錯誤)
+# 籌碼牆計算
 price_min = float(df['Low'].min())
 price_max = float(df['High'].max())
 if price_min == price_max or np.isnan(price_min) or np.isnan(price_max):
@@ -120,16 +115,11 @@ if price_min == price_max or np.isnan(price_min) or np.isnan(price_max):
 
 bins = 12
 bin_edges = np.linspace(price_min, price_max, bins + 1)
-# 確保邊界絕對遞增
-if bin_edges[0] == bin_edges[-1]:
-    bin_edges = np.linspace(price_min - 5, price_max + 5, bins + 1)
-
 df['Bin'] = pd.cut(df['Close'], bins=bin_edges, labels=False, include_lowest=True)
 volume_profile = df.groupby('Bin', observed=False)['Volume'].sum().fillna(0)
 bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 top_bins = volume_profile.sort_values(ascending=False).index
 
-# 防呆指定 POC
 try:
     poc_1 = bin_centers[top_bins[0]]
     poc_2 = bin_centers[top_bins[1]] if len(top_bins) > 1 else poc_1
@@ -140,31 +130,56 @@ except:
     poc_3 = poc_1
 
 # ==========================================
-# 繪圖與雲端網頁渲染
+# 🎨 繪圖與雲端網頁渲染 (三竹分頁流架構)
 # ==========================================
 plt.style.use('dark_background')
-fig, ax = plt.subplots(figsize=(11, 5.5))
 
+# --- 👑 1. 上層主圖：純淨 K 線與大庄家成本牆 ---
+fig_main, ax1 = plt.subplots(figsize=(11, 4.5))
 k_width = 8 if check_days <= 10 else 4
-ax.vlines(df.index, df['Low'], df['High'], color='#777777', linewidth=1)
-ax.vlines(df.index[df['Is_Up']], df['Open'][df['Is_Up']], df['Close'][df['Is_Up']], color='#ff3333', linewidth=k_width, label='漲')
-ax.vlines(df.index[~df['Is_Up']], df['Open'][~df['Is_Up']], df['Close'][~df['Is_Up']], color='#00cc66', linewidth=k_width, label='跌')
 
-ax.plot(df.index, df['OBV_Scaled'], color='#00ffff', linewidth=2, label='OBV Flow')
-ax.plot(df.index, df['OBV_MA5_Scaled'], color='#ffff00', linestyle=':', linewidth=1.5, label='OBV MA5')
+ax1.vlines(df.index, df['Low'], df['High'], color='#777777', linewidth=1)
+ax1.vlines(df.index[df['Is_Up']], df['Open'][df['Is_Up']], df['Close'][df['Is_Up']], color='#ff3333', linewidth=k_width, label='漲')
+ax1.vlines(df.index[~df['Is_Up']], df['Open'][~df['Is_Up']], df['Close'][~df['Is_Up']], color='#00cc66', linewidth=k_width, label='跌')
 
-ax.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1 (Max): {poc_1:.1f}')
-ax.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
-ax.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, label=f'POC 3: {poc_3:.1f}')
+ax1.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1 (Max): {poc_1:.1f}')
+ax1.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
+ax1.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, label=f'POC 3: {poc_3:.1f}')
 
-ax.set_title(f"TW Stock {ticker_input} ({check_days} Days Analysis)", color='yellow', fontsize=14)
-ax.grid(True, color='#222222', alpha=0.5)
+ax1.set_title(f"TW Stock {ticker_input} ({check_days} Days Analysis)", color='yellow', fontsize=14)
+ax1.grid(True, color='#222222', alpha=0.5)
+ax1.legend(loc='upper left', fontsize=9)
+plt.xticks(rotation=15)
 
-handles, labels = ax.get_legend_handles_labels()
-by_label = dict(zip(labels, handles))
-ax.legend(by_label.values(), by_label.keys(), loc='upper left', fontsize=10)
+# 先把主圖渲染出來
+st.pyplot(fig_main)
 
-st.pyplot(fig)
+# --- 🎛️ 2. 下層副圖：三竹式分頁切換艙 ---
+st.write("### 📈 副圖指標控制艙")
+tab1, tab2 = st.tabs(["📊 經典成交量", "🌊 OBV 籌碼動能"])
 
+# 【分頁一：經典成交量】
+with tab1:
+    fig_vol, ax_vol = plt.subplots(figsize=(11, 2.5))
+    # 三竹式紅綠量能柱：上漲日畫紅柱，下跌日畫綠柱
+    colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
+    ax_vol.bar(df.index, df['Volume'], color=colors, width=k_width/100 + 0.4, alpha=0.9, label='Volume')
+    ax_vol.set_ylabel('Volume (張)', color='white', fontsize=9)
+    ax_vol.grid(True, color='#222222', alpha=0.5)
+    plt.xticks(rotation=15)
+    st.pyplot(fig_vol)
+
+# 【分頁二：OBV籌碼動能】
+with tab2:
+    fig_obv, ax_obv = plt.subplots(figsize=(11, 2.5))
+    ax_obv.plot(df.index, df['OBV'], color='#00ffff', linewidth=2, label='OBV Flow')
+    ax_obv.plot(df.index, df['OBV_MA5'], color='#ffff00', linestyle=':', linewidth=1.5, label='OBV MA5')
+    ax_obv.set_ylabel('OBV Volume', color='#00ffff', fontsize=9)
+    ax_obv.grid(True, color='#222222', alpha=0.5)
+    ax_obv.legend(loc='upper left', fontsize=8)
+    plt.xticks(rotation=15)
+    st.pyplot(fig_obv)
+
+# 交易數據明細
 st.write("### 📝 近期交易數據明細")
 st.dataframe(df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(10))
