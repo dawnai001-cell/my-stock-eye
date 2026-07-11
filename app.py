@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - 終極完全體 (究極無瑕版)")
+st.title("📊 台股籌碼天眼 - 日週精簡穩定版")
 
 # =======================================================
 # 側邊欄控制面板
@@ -17,10 +17,10 @@ st.sidebar.header("🛠️ 交易控制台")
 
 ticker_input = st.sidebar.text_input("請輸入台股代號（如 2317 或 6788）：", value="2317").strip()
 
-# 週期切換
+# 週期切換（移除月線，僅保留日、週線）
 period_choice = st.radio(
     "請選擇 K 線週期：",
-    ["📅 日線 (Daily)", "📆 週線 (Weekly)", "🌙 月線 (Monthly)"],
+    ["📅 日線 (Daily)", "📆 週線 (Weekly)"],
     index=0,
     horizontal=True
 )
@@ -28,10 +28,8 @@ period_choice = st.radio(
 # 依週期設定 Slider 的預設與極值
 if "日線" in period_choice:
     max_days, default_days, step_days, label = 300, 90, 5, "觀測天數 (日)"
-elif "週線" in period_choice:
-    max_days, default_days, step_days, label = 150, 52, 2, "觀測週數 (週)"
 else:
-    max_days, default_days, step_days, label = 60, 24, 1, "觀測月數 (月)"
+    max_days, default_days, step_days, label = 150, 52, 2, "觀測週數 (週)"
 
 check_days = st.sidebar.slider(label, min_value=5, max_value=max_days, value=default_days, step=step_days)
 
@@ -56,16 +54,16 @@ sub_plot_choice = st.sidebar.radio(
 # ==========================================
 @st.cache_data(ttl=3600)
 def load_stock_data(ticker):
-    # 下載 6 年資料，確保月線有足夠 K 棒
+    # 回歸穩定下載：2 年歷史資料足夠支撐日/週線的所有長線指標（如 MA60、一目均衡表）
     try:
-        df_yf = yf.download(f"{ticker}.TW", period="6y", progress=False)
+        df_yf = yf.download(f"{ticker}.TW", period="2y", progress=False)
         if not df_yf.empty and len(df_yf) > 2:
             return process_df(df_yf)
     except:
         pass
         
     try:
-        df_yf = yf.download(f"{ticker}.TWO", period="6y", progress=False)
+        df_yf = yf.download(f"{ticker}.TWO", period="2y", progress=False)
         if not df_yf.empty and len(df_yf) > 2:
             return process_df(df_yf)
     except:
@@ -93,8 +91,8 @@ if df_raw is None or len(df_raw) == 0:
 def resample_data(df, choice):
     if "日線" in choice:
         return df.copy()
-    rule = 'W-FRI' if "週線" in choice else 'ME'
-    resampled = df.resample(rule).agg({
+    # 僅留週線重組
+    resampled = df.resample('W-FRI').agg({
         'Open': 'first',
         'High': 'max',
         'Low': 'min',
@@ -152,18 +150,14 @@ for i in range(1, len(df_all)):
 df_all['SAR'] = sars
 df_all['SAR_Type'] = sar_types
 
-# 一目均衡表 (防禦型：長度不足自動填 NaN)
-if len(df_all) >= 52:
-    high_9 = df_all['High'].rolling(window=9).max(); low_9 = df_all['Low'].rolling(window=9).min()
-    df_all['Tenkan_Sen'] = (high_9 + low_9) / 2
-    high_26 = df_all['High'].rolling(window=26).max(); low_26 = df_all['Low'].rolling(window=26).min()
-    df_all['Kijun_Sen'] = (high_26 + low_26) / 2
-    df_all['Senkou_Span_A'] = ((df_all['Tenkan_Sen'] + df_all['Kijun_Sen']) / 2).shift(26)
-    high_52 = df_all['High'].rolling(window=52).max(); low_52 = df_all['Low'].rolling(window=52).min()
-    df_all['Senkou_Span_B'] = ((high_52 + low_52) / 2).shift(26)
-else:
-    df_all['Tenkan_Sen'] = np.nan; df_all['Kijun_Sen'] = np.nan
-    df_all['Senkou_Span_A'] = np.nan; df_all['Senkou_Span_B'] = np.nan
+# 一目均衡表
+high_9 = df_all['High'].rolling(window=9).max(); low_9 = df_all['Low'].rolling(window=9).min()
+df_all['Tenkan_Sen'] = (high_9 + low_9) / 2
+high_26 = df_all['High'].rolling(window=26).max(); low_26 = df_all['Low'].rolling(window=26).min()
+df_all['Kijun_Sen'] = (high_26 + low_26) / 2
+df_all['Senkou_Span_A'] = ((df_all['Tenkan_Sen'] + df_all['Kijun_Sen']) / 2).shift(26)
+high_52 = df_all['High'].rolling(window=52).max(); low_52 = df_all['Low'].rolling(window=52).min()
+df_all['Senkou_Span_B'] = ((high_52 + low_52) / 2).shift(26)
 
 # KDJ & OBV
 df_all['Is_Up'] = df_all['Close'] >= df_all['Open']
@@ -185,13 +179,9 @@ df_all['K'] = k_list[1:]; df_all['D'] = d_list[1:]; df_all['J'] = 3 * df_all['K'
 
 # 裁切尾端數據
 df = df_all.tail(check_days).copy()
+df['Date_Str'] = df.index.strftime('%Y-%m-%d')
 
-if "月線" in period_choice:
-    df['Date_Str'] = df.index.strftime('%Y-%m')
-else:
-    df['Date_Str'] = df.index.strftime('%Y-%m-%d')
-
-# 🎯 籌碼牆 POC 徹底防禦型寫法
+# 籌碼牆 POC
 poc_1, poc_2, poc_3 = df['Close'].mean(), df['Close'].mean(), df['Close'].mean()
 try:
     price_min, price_max = float(df['Low'].min()), float(df['High'].max())
@@ -203,7 +193,6 @@ try:
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
         top_bins = volume_profile.sort_values(ascending=False).index
         
-        # 逐層安全檢查，防止 Bin 分類不足 3 個崩潰
         if len(top_bins) >= 1: poc_1 = bin_centers[top_bins[0]]
         if len(top_bins) >= 2: poc_2 = bin_centers[top_bins[1]]
         if len(top_bins) >= 3: poc_3 = bin_centers[top_bins[2]]
@@ -225,9 +214,8 @@ fig = make_subplots(
 custom_hover_strings = []
 for i in range(len(df)):
     lines = []
-    p_tag = "週" if "週線" in period_choice else ("月" if "月線" in period_choice else "日")
+    p_tag = "週" if "週線" in period_choice else "日"
     
-    # 指標數值安全防護檢查
     def fmt_val(v): return f"{v:.2f}" if not pd.isna(v) else "--"
 
     if "5日均線 (MA5)" in overlay_options: lines.append(f"{p_tag}5: {fmt_val(df['MA5'].iloc[i])}")
@@ -330,20 +318,13 @@ fig.update_layout(
 fig.update_traces(hoverinfo="all", selector=dict(type='candlestick'))
 fig.update_layout(hoverdistance=100, spikedistance=1000)
 
-# 智慧時間軸標籤
+# 智慧時間軸標籤 (只留下日、週的步進間隔)
 all_dates = df['Date_Str'].tolist()
-tickvals, ticktexts, last_year = [], [], ""
+tickvals, ticktexts = [], []
 for idx, date_str in enumerate(all_dates):
-    year_str = date_str[:4]
-    if "月線" in period_choice:
-        if year_str != last_year:
-            tickvals.append(date_str)
-            ticktexts.append(year_str)
-            last_year = year_str
-    else:
-        if idx % (max(1, len(df)//6)) == 0:
-            tickvals.append(date_str)
-            ticktexts.append(date_str[2:])
+    if idx % (max(1, len(df)//6)) == 0:
+        tickvals.append(date_str)
+        ticktexts.append(date_str[2:])
 
 fig.update_xaxes(type='category', tickangle=0, showgrid=True, gridcolor='rgba(255,255,255,0.05)', row=2, col=1)
 fig.update_xaxes(tickmode='array', tickvals=tickvals, ticktext=ticktexts, row=2, col=1)
