@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - TradingView 查價完全體")
+st.title("📊 台股籌碼天眼 - 查價完全體 (全指標聯動)")
 
 # =======================================================
 # 側邊欄控制面板
@@ -162,7 +162,7 @@ except:
 
 
 # ==============================================================================
-# 🎨 畫布整合 (聯動完全體)
+# 🎨 畫布整合 (動態主+副圖指標大聯動)
 # ==============================================================================
 fig = make_subplots(
     rows=2, cols=1, 
@@ -171,33 +171,56 @@ fig = make_subplots(
     row_heights=[0.72, 0.28]
 )
 
-# 🎯 核心黑科技：動態建立副圖指標的自訂文字，直接綁進 K 線的 customdata
-custom_sub_info = []
+# 🎯 核心黑科技：動態判斷「勾選了哪些主圖指標」與「選擇了哪個副圖」，組合成完整的自訂文字串
+custom_hover_strings = []
 for i in range(len(df)):
+    lines = []
+    
+    # 1. 檢查勾選的主圖指標，加入清單
+    if "5日均線 (MA5)" in overlay_options:
+        lines.append(f"MA5:{df['MA5'].iloc[i]:.2f}")
+    if "20日均線 (MA20)" in overlay_options:
+        lines.append(f"MA20:{df['MA20'].iloc[i]:.2f}")
+    if "60日均線 (MA60)" in overlay_options:
+        lines.append(f"MA60:{df['MA60'].iloc[i]:.2f}")
+    if "布林通道 (Bollinger)" in overlay_options:
+        lines.append(f"布林:{df['BB_Up'].iloc[i]:.2f}/{df['BB_Low'].iloc[i]:.2f}")
+    if "肯特納通道 (Keltner)" in overlay_options:
+        lines.append(f"肯特納:{df['KC_Up'].iloc[i]:.2f}/{df['KC_Low'].iloc[i]:.2f}")
+    if "拋物線指標 (SAR)" in overlay_options:
+        lines.append(f"SAR:{df['SAR'].iloc[i]:.2f}")
+    
+    # 2. 將主圖指標用換行符號連接
+    overlay_text = "<br>".join(lines) if lines else "無疊加指標"
+    
+    # 3. 檢查副圖選擇
     if sub_plot_choice == "📊 經典成交量":
-        info = f"量: {df['Volume'].iloc[i]:.1f} 張"
+        sub_text = f"量:{df['Volume'].iloc[i]:.1f}張"
     elif sub_plot_choice == "⚡ 專業 KDJ 指標":
-        info = f"K: {df['K'].iloc[i]:.1f} | D: {df['D'].iloc[i]:.1f} | J: {df['J'].iloc[i]:.1f}"
-    else:  # OBV
-        info = f"OBV: {df['OBV'].iloc[i]:.1f} | MA5: {df['OBV_MA5'].iloc[i]:.1f}"
-    custom_sub_info.append(info)
+        sub_text = f"K:{df['K'].iloc[i]:.1f} D:{df['D'].iloc[i]:.1f} J:{df['J'].iloc[i]:.1f}"
+    else:
+        sub_text = f"OBV:{df['OBV'].iloc[i]:.1f} MA5:{df['OBV_MA5'].iloc[i]:.1f}"
+        
+    # 4. 合體包裝 (主圖疊加與副圖用大區隔線分開)
+    total_info = f"{overlay_text}<br>--------------------<br>📊 {sub_text}"
+    custom_hover_strings.append(total_info)
 
 # --------- 【主圖】 ---------
 if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_B'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
 
-# 🎯 終極優化：這裡的 hovertemplate 同時渲染了 K線 與 剛剛打包進來的副圖指標數值 (%{customdata})！
+# 🎯 終極優化：hovertemplate 將開高低收、疊加指標、副圖指標一口氣和諧排版輸出！
 fig.add_trace(go.Candlestick(
     x=df['Date_Str'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     name='K線',
-    customdata=custom_sub_info,
-    hovertemplate="開:%{open:.2f}<br>高:%{high:.2f}<br>低:%{low:.2f}<br>收:%{close:.2f}<br>📊 %{customdata}<extra></extra>",
+    customdata=custom_hover_strings,
+    hovertemplate="開:%{open:.2f}<br>高:%{high:.2f}<br>低:%{low:.2f}<br>收:%{close:.2f}<br>--------------------<br>%{customdata}<extra></extra>",
     increasing_line_color='#ff3333', increasing_fillcolor='#ff3333',
     decreasing_line_color='#00cc66', decreasing_fillcolor='#00cc66'
 ), row=1, col=1)
 
-# 為了保持最左上角排版的整潔，疊加指標我們設定跳過，只聚焦看盤主核心
+# 所有背後的畫線一律 hoverinfo='skip'，避免出現多個混亂的小標籤，全部統一歸納在 K 線主標籤中！
 if "5日均線 (MA5)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5', hoverinfo='skip'), row=1, col=1)
 if "20日均線 (MA20)" in overlay_options:
@@ -225,7 +248,6 @@ if "籌碼成本牆 (POC)" in overlay_options:
     fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_3, x1=df['Date_Str'].iloc[-1], y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"), row=1, col=1)
 
 # --------- 【副圖】 ---------
-# 副圖統一設定 hoverinfo='skip'，因為數據已經全部上繳到 K 線的查價框了！
 if sub_plot_choice == "📊 經典成交量":
     vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
     fig.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, marker_line_width=0, name='成交量(張)', hoverinfo='skip'), row=2, col=1)
@@ -246,33 +268,20 @@ fig.update_layout(
     xaxis2_rangeslider_visible=False,
     height=650,
     margin=dict(l=10, r=10, t=10, b=10),
-    
-    # 🎯 關鍵優化 1：切換回單點捕捉模式，以便實現「固定左上角」的完美排版
     hovermode="closest", 
-    
-    # 🎯 關鍵優化 2：TradingView 模式！利用 x=0, y=1 與 yref='paper'，強制把浮動方塊「釘死」在主圖的左上角
     hoverlabel=dict(
-        bgcolor="rgba(30, 30, 30, 0.9)",  # 高質感半透明黑卡
+        bgcolor="rgba(30, 30, 30, 0.9)",  # 質感半透明黑卡
         font_size=14,
         font_family="monospace",
         align="left",
-        namelength=0                    # 隱藏多餘 trace 名稱
+        namelength=0
     ),
     bargap=0.28,                       
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 
-# 🎯 強制指定 hover 方塊的固定座標位置（不再隨著滑鼠飄移，而是死死釘在左上角！）
-fig.update_traces(
-    hoverinfo="all",
-    selector=dict(type='candlestick')
-)
-
-# 透過這行神奇的 layout 控制，讓 hover 框在 X 軸上固定靠左、Y 軸靠上
-fig.update_layout(
-    hoverdistance=100,
-    spikedistance=1000
-)
+fig.update_traces(hoverinfo="all", selector=dict(type='candlestick'))
+fig.update_layout(hoverdistance=100, spikedistance=1000)
 
 # 智慧時間軸標籤
 all_dates = df.index.strftime('%Y-%m-%d').tolist()
@@ -290,14 +299,8 @@ fig.update_xaxes(type='category', showticklabels=False, row=1, col=1)
 fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.05)')
 
 # 強制十字準星線跨圖表
-fig.update_xaxes(
-    showspikes=True, spikecolor="rgba(255, 255, 255, 0.4)", spikethickness=1, spikedash="dash", spikemode="across",
-    row=1, col=1
-)
-fig.update_yaxes(
-    showspikes=True, spikecolor="rgba(255, 255, 255, 0.4)", spikethickness=1, spikedash="dash",
-    row=1, col=1
-)
+fig.update_xaxes(showspikes=True, spikecolor="rgba(255, 255, 255, 0.4)", spikethickness=1, spikedash="dash", spikemode="across", row=1, col=1)
+fig.update_yaxes(showspikes=True, spikecolor="rgba(255, 255, 255, 0.4)", spikethickness=1, spikedash="dash", row=1, col=1)
 
 st.plotly_chart(fig, use_container_width=True)
 
