@@ -19,7 +19,7 @@ ticker_input = st.sidebar.text_input("請輸入台股代號：", value="2356").s
 check_days = st.sidebar.slider("請選擇觀測天數：", min_value=5, max_value=90, value=20, step=5)
 
 st.sidebar.write("---")
-st.sidebar.info("💡 判讀小提示：\n1. 主圖 POC 1 是大庄家核心成本防線。\n2. 下方副圖分頁可自由切換指標，完全復刻三竹看盤體驗。")
+st.sidebar.info("💡 判讀小提示：\n1. 主圖 POC 1 是大庄家核心成本防線。\n2. 已經移除休市日空白，圖表完全緊密連續呈現。")
 
 # ==========================================
 # 網路數據抓取
@@ -129,18 +129,28 @@ except:
     poc_2 = poc_1
     poc_3 = poc_1
 
+# 💡 建立連續的流水號索引，徹底抽離休市日的物理空白 gap
+df['x_index'] = np.arange(len(df))
+# 格式化日期標籤 (只要年-月-日)
+date_labels = df.index.strftime('%Y-%m-%d').tolist()
+
+# 根據觀測天數自動調整日期標籤的顯示密度，避免文字重疊擠爆
+step = max(1, len(df) // 6)
+tick_indices = df['x_index'].iloc[::step].tolist()
+tick_labels = [date_labels[i] for i in tick_indices]
+
 # ==========================================
-# 🎨 繪圖與雲端網頁渲染 (三竹分頁流架構)
+# 🎨 繪圖與雲端網頁渲染 (無縫連續排版)
 # ==========================================
 plt.style.use('dark_background')
 
 # --- 👑 1. 上層主圖：純淨 K 線與大庄家成本牆 ---
 fig_main, ax1 = plt.subplots(figsize=(11, 4.5))
-k_width = 8 if check_days <= 10 else 4
+k_width = 0.6  # 改用相對寬度，不受時間軸物理距離影響
 
-ax1.vlines(df.index, df['Low'], df['High'], color='#777777', linewidth=1)
-ax1.vlines(df.index[df['Is_Up']], df['Open'][df['Is_Up']], df['Close'][df['Is_Up']], color='#ff3333', linewidth=k_width, label='漲')
-ax1.vlines(df.index[~df['Is_Up']], df['Open'][~df['Is_Up']], df['Close'][~df['Is_Up']], color='#00cc66', linewidth=k_width, label='跌')
+ax1.vlines(df['x_index'], df['Low'], df['High'], color='#777777', linewidth=1)
+ax1.vlines(df['x_index'][df['Is_Up']], df['Open'][df['Is_Up']], df['Close'][df['Is_Up']], color='#ff3333', linewidth=k_width*10, label='漲')
+ax1.vlines(df['x_index'][~df['Is_Up']], df['Open'][~df['Is_Up']], df['Close'][~df['Is_Up']], color='#00cc66', linewidth=k_width*10, label='跌')
 
 ax1.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1 (Max): {poc_1:.1f}')
 ax1.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
@@ -149,9 +159,11 @@ ax1.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, l
 ax1.set_title(f"TW Stock {ticker_input} ({check_days} Days Analysis)", color='yellow', fontsize=14)
 ax1.grid(True, color='#222222', alpha=0.5)
 ax1.legend(loc='upper left', fontsize=9)
-plt.xticks(rotation=15)
 
-# 先把主圖渲染出來
+# 強制換上我們的連續日期標籤
+ax1.set_xticks(tick_indices)
+ax1.set_xticklabels(tick_labels, rotation=15, fontsize=9)
+
 st.pyplot(fig_main)
 
 # --- 🎛️ 2. 下層副圖：三竹式分頁切換艙 ---
@@ -161,23 +173,26 @@ tab1, tab2 = st.tabs(["📊 經典成交量", "🌊 OBV 籌碼動能"])
 # 【分頁一：經典成交量】
 with tab1:
     fig_vol, ax_vol = plt.subplots(figsize=(11, 2.5))
-    # 三竹式紅綠量能柱：上漲日畫紅柱，下跌日畫綠柱
     colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
-    ax_vol.bar(df.index, df['Volume'], color=colors, width=k_width/100 + 0.4, alpha=0.9, label='Volume')
+    ax_vol.bar(df['x_index'], df['Volume'], color=colors, width=0.6, alpha=0.9)
     ax_vol.set_ylabel('Volume (張)', color='white', fontsize=9)
     ax_vol.grid(True, color='#222222', alpha=0.5)
-    plt.xticks(rotation=15)
+    
+    ax_vol.set_xticks(tick_indices)
+    ax_vol.set_xticklabels(tick_labels, rotation=15, fontsize=9)
     st.pyplot(fig_vol)
 
 # 【分頁二：OBV籌碼動能】
 with tab2:
     fig_obv, ax_obv = plt.subplots(figsize=(11, 2.5))
-    ax_obv.plot(df.index, df['OBV'], color='#00ffff', linewidth=2, label='OBV Flow')
-    ax_obv.plot(df.index, df['OBV_MA5'], color='#ffff00', linestyle=':', linewidth=1.5, label='OBV MA5')
+    ax_obv.plot(df['x_index'], df['OBV'], color='#00ffff', linewidth=2, label='OBV Flow')
+    ax_obv.plot(df['x_index'], df['OBV_MA5'], color='#ffff00', linestyle=':', linewidth=1.5, label='OBV MA5')
     ax_obv.set_ylabel('OBV Volume', color='#00ffff', fontsize=9)
     ax_obv.grid(True, color='#222222', alpha=0.5)
     ax_obv.legend(loc='upper left', fontsize=8)
-    plt.xticks(rotation=15)
+    
+    ax_obv.set_xticks(tick_indices)
+    ax_obv.set_xticklabels(tick_labels, rotation=15, fontsize=9)
     st.pyplot(fig_obv)
 
 # 交易數據明細
