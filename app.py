@@ -144,9 +144,9 @@ for val in rsv:
     d_list.append((2/3) * d_list[-1] + (1/3) * k_list[-1])
 df_all['K'] = k_list[1:]; df_all['D'] = d_list[1:]; df_all['J'] = 3 * df_all['K'] - 2 * df_all['D']
 
-# 🎯 回歸最安定解：擷取觀測天數，使用完整的年月序列字串
+# 🎯 擷取觀測天數，建立純字串日期格式（確保 category 模式運作完美）
 df = df_all.tail(check_days).copy()
-df['Date_Str'] = df.index.strftime('%Y-%m-%d ') # 加一空格防止圖表組件型態快取干擾
+df['Date_Str'] = df.index.strftime('%Y-%m-%d ') # 加一空格防止圖表快取型態干擾
 
 # 籌碼牆 POC 計算
 price_min, price_max = float(df['Low'].min()), float(df['High'].max())
@@ -211,13 +211,13 @@ if "籌碼成本牆 (POC)" in overlay_options:
 # --------- 【副圖】 ---------
 if sub_plot_choice == "📊 經典成交量":
     vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
-    # 🎯 降維打擊：將成交量柱狀圖改用 Candlestick 繪製！這能讓棒子寬度、骨架與主圖 100% 同步，且完全消滅年假空白斷層
-    fig.add_trace(go.Candlestick(
-        x=df['Date_Str'], open=np.zeros(len(df)), high=df['Volume'], low=np.zeros(len(df)), close=df['Volume'],
-        name='成交量(張)',
-        increasing_line_color=vol_colors, increasing_fillcolor=vol_colors,
-        decreasing_line_color=vol_colors, decreasing_fillcolor=vol_colors,
-        hoverinfo="y+name"
+    # 🎯 修正：改回標準 Bar，搭配 category 模式可完美跟 K 線緊密黏合
+    fig.add_trace(go.Bar(
+        x=df['Date_Str'], 
+        y=df['Volume'], 
+        marker_color=vol_colors, 
+        marker_line_width=0,       # 移除邊框，防止棒子肥大變形
+        name='成交量(張)'
     ), row=2, col=1)
 elif sub_plot_choice == "⚡ 專業 KDJ 指標":
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K'), row=2, col=1)
@@ -228,7 +228,7 @@ elif sub_plot_choice == "🌊 OBV 籌碼動能":
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV_MA5'], line=dict(color='#ffff00', width=1, dash='dot'), name='OBV_MA5'), row=2, col=1)
 
 # ==========================================
-# 📐 終極修復外觀
+# 📐 全局版面與 X 軸對齊控制
 # ==========================================
 fig.update_layout(
     template="plotly_dark",
@@ -237,10 +237,11 @@ fig.update_layout(
     height=600,
     margin=dict(l=10, r=10, t=10, b=10),
     hovermode="x unified",
+    bargap=0.28,                       # 👈 控制成交量與 K 線的柱子間距同步
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 
-# 🚀 既然組件都是統一格式，直接開 category 模式就不會有年假空洞，而且棒子大小保證絕對垂直對齊
+# 🚀 使用 category 模式：完全消滅所有年假與週末的空白斷層
 fig.update_xaxes(
     type='category', 
     tickangle=0,
@@ -248,7 +249,7 @@ fig.update_xaxes(
     row=2, col=1                        
 )
 
-# 智慧型日期標籤美化：只在月份有變動時才顯示，達成窄窄顯示月份的效果！
+# 💡 智慧標籤：只有當月份有變更時才在底部顯示 %Y-%m，達成超清爽、高密度的三竹 X 軸
 all_dates = df.index.strftime('%Y-%m').tolist()
 tickvals = []
 ticktexts = []
@@ -266,7 +267,8 @@ fig.update_xaxes(
     row=2, col=1
 )
 
-fig.update_xaxes(showticklabels=False, row=1, col=1) # 隱藏主圖日期標籤
+# 隱藏主圖 X 軸的文字（避免兩組日期重疊），但維持同步對齊
+fig.update_xaxes(type='category', showticklabels=False, row=1, col=1)
 fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.05)')
 
 st.plotly_chart(fig, use_container_width=True)
