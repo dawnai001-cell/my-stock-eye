@@ -19,7 +19,7 @@ ticker_input = st.sidebar.text_input("請輸入台股代號：", value="2356").s
 check_days = st.sidebar.slider("請選擇觀測天數：", min_value=5, max_value=90, value=20, step=5)
 
 st.sidebar.write("---")
-st.sidebar.info("💡 判讀小提示：\n1. 主圖 K 棒已修正為正統開高低收比例（有長短實體與上下影線）。\n2. 下方控制艙新增經典 KDJ 指標。")
+st.sidebar.info("💡 判讀小提示：\n1. 主圖 K 棒已修正為正統開高低收比例（有長短實體與上下影線）。\n2. 週末模擬數據時間軸已同步校正至最新交易日（2026-07-10）。")
 
 # ==========================================
 # 網路數據抓取
@@ -75,22 +75,21 @@ if error_msg is not None or df_all is None:
     base_price = 68.0
     prices = np.random.normal(0, 1.2, 100).cumsum() + base_price
     
+    # 💡 關鍵校正：將模擬數據的結束時間精準對齊到 2026-07-10，向前推算 100 個交易日
     df_all = pd.DataFrame({
         'Open': prices - 0.3,
         'High': prices + 0.8,
         'Low': prices - 0.7,
         'Close': prices,
         'Volume': np.random.randint(10000, 50000, 100).astype(float)
-    }, index=pd.date_range(start="2026-01-01", periods=100, freq='B'))
+    }, index=pd.date_range(end="2026-07-10", periods=100, freq='B'))
 
 # ==========================================
 # 📊 核心指標計算 (包含 KDJ 與 OBV)
 # ==========================================
-# 1. 計算漲跌
 df_all['Price_Change'] = df_all['Close'].diff()
 df_all['Is_Up'] = df_all['Price_Change'] >= 0
 
-# 2. 計算 OBV
 obv_list = [0.0]
 for i in range(1, len(df_all)):
     if df_all['Close'].iloc[i] > df_all['Close'].iloc[i-1]:
@@ -102,12 +101,11 @@ for i in range(1, len(df_all)):
 df_all['OBV'] = obv_list
 df_all['OBV_MA5'] = df_all['OBV'].rolling(window=5).mean()
 
-# 3. 計算經典 KDJ (9, 3, 3)
+# 計算經典 KDJ (9, 3, 3)
 low_9 = df_all['Low'].rolling(window=9).min()
 high_9 = df_all['High'].rolling(window=9).max()
-# 未成熟隨機值 RSV
 rsv = (df_all['Close'] - low_9) / (high_9 - low_9) * 100
-rsv = rsv.fillna(50.0) # 防呆
+rsv = rsv.fillna(50.0)
 
 k_list, d_list = [50.0], [50.0]
 for val in rsv:
@@ -123,7 +121,7 @@ df_all['J'] = 3 * df_all['K'] - 2 * df_all['D']
 # 根據使用者拉桿的天數切取最終顯示數據
 df = df_all.tail(check_days).copy()
 
-# 4. 籌碼牆 POC 計算
+# 籌碼牆 POC 計算
 price_min = float(df['Low'].min())
 price_max = float(df['High'].max())
 bins = 12
@@ -142,7 +140,7 @@ except:
     poc_2 = poc_1
     poc_3 = poc_1
 
-# 建立連續流水號索引，確保圖表無縫黏合
+# 建立連續流水號索引
 df['x_index'] = np.arange(len(df))
 date_labels = df.index.strftime('%Y-%m-%d').tolist()
 step = max(1, len(df) // 6)
@@ -150,23 +148,18 @@ tick_indices = df['x_index'].iloc[::step].tolist()
 tick_labels = [date_labels[i] for i in tick_indices]
 
 # ==========================================
-# 🎨 繪圖與雲端網頁渲染 (完全體正統 K 線)
+# 🎨 繪圖與雲端網頁渲染
 # ==========================================
 plt.style.use('dark_background')
 
 # --- 👑 1. 上層主圖：正統有長短、有影線的 K 線圖 ---
 fig_main, ax1 = plt.subplots(figsize=(11, 4.5))
+k_width = 0.6
 
-# 修正：精準劃分「實體」與「影線」
-# 先畫上下影線（最高到最低的細線）
 ax1.vlines(df['x_index'], df['Low'], df['High'], color='#999999', linewidth=1.2)
-
-# 再畫 K 棒實體（從開盤到收盤，這樣才會有長短變化！）
 colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
-# 用 vlines 畫實體棒：傳入 x 座標、開盤、收盤，這樣高度才會完全跟隨真實價差！
 ax1.vlines(df['x_index'], df['Open'], df['Close'], color=colors, linewidth=5, alpha=1.0)
 
-# 庄家核心成本牆
 ax1.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1 (Max): {poc_1:.1f}')
 ax1.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
 ax1.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, label=f'POC 3: {poc_3:.1f}')
@@ -174,17 +167,15 @@ ax1.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, l
 ax1.set_title(f"TW Stock {ticker_input} ({check_days} Days Analysis)", color='yellow', fontsize=14)
 ax1.grid(True, color='#222222', alpha=0.5)
 ax1.legend(loc='upper left', fontsize=9)
-
 ax1.set_xticks(tick_indices)
 ax1.set_xticklabels(tick_labels, rotation=15, fontsize=9)
 
 st.pyplot(fig_main)
 
-# --- 🎛️ 2. 下層副圖：三竹式分頁切換艙 (升級為三個分頁) ---
+# --- 🎛️ 2. 下層副圖：三竹式分頁切換艙 ---
 st.write("### 📈 副圖指標控制艙")
 tab1, tab2, tab3 = st.tabs(["📊 經典成交量", "⚡ 專業 KDJ 指標", "🌊 OBV 籌碼動能"])
 
-# 【分頁一：經典成交量】
 with tab1:
     fig_vol, ax_vol = plt.subplots(figsize=(11, 2.5))
     ax_vol.bar(df['x_index'], df['Volume'], color=colors, width=0.6, alpha=0.9)
@@ -194,17 +185,13 @@ with tab1:
     ax_vol.set_xticklabels(tick_labels, rotation=15, fontsize=9)
     st.pyplot(fig_vol)
 
-# 【分頁二：專業 KDJ 指標】
 with tab2:
     fig_kdj, ax_kdj = plt.subplots(figsize=(11, 2.5))
     ax_kdj.plot(df['x_index'], df['K'], color='white', linewidth=1.5, label='K (9)')
     ax_kdj.plot(df['x_index'], df['D'], color='yellow', linewidth=1.5, label='D (3)')
     ax_kdj.plot(df['x_index'], df['J'], color='magenta', linewidth=1.2, linestyle='--', label='J (3)')
-    
-    # 畫出三竹經典的 20 弱勢區 與 80 超買區 參考線
     ax_kdj.axhline(y=80, color='red', linestyle=':', linewidth=1, alpha=0.5)
     ax_kdj.axhline(y=20, color='green', linestyle=':', linewidth=1, alpha=0.5)
-    
     ax_kdj.set_ylabel('KDJ Value', color='yellow', fontsize=9)
     ax_kdj.grid(True, color='#222222', alpha=0.5)
     ax_kdj.legend(loc='upper left', fontsize=8)
@@ -212,7 +199,6 @@ with tab2:
     ax_kdj.set_xticklabels(tick_labels, rotation=15, fontsize=9)
     st.pyplot(fig_kdj)
 
-# 【分頁三：OBV籌碼動能】
 with tab3:
     fig_obv, ax_obv = plt.subplots(figsize=(11, 2.5))
     ax_obv.plot(df['x_index'], df['OBV'], color='#00ffff', linewidth=2, label='OBV Flow')
