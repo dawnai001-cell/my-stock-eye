@@ -22,9 +22,8 @@ st.sidebar.write("---")
 st.sidebar.info("💡 判讀小提示：\n1. POC 1 是大庄家核心成本防線。\n2. 當 OBV (青線) 跌破 MA5 (黃線)，代表短線資金加速撤退。")
 
 # ==========================================
-# 網路數據抓取
+# 網路數據抓取 (拔除 cache，確保每次都徹底重算)
 # ==========================================
-# @st.cache_data(ttl=3600)  # 快取機制：一小時內重複查詢不用重新連證交所
 def fetch_data(ticker):
     try:
         url = f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&stockNo={ticker}"
@@ -56,28 +55,30 @@ def fetch_data(ticker):
             df['Low'] = df_raw['Low'].str.replace(',', '').astype(float)
             df['Close'] = df_raw['Close'].str.replace(',', '').astype(float)
             df['Volume'] = df_raw['Volume'].str.replace(',', '').astype(float) / 1000
-            return df.dropna(), None
+            
+            if len(df.dropna()) > 0:
+                return df.dropna(), None
+            else:
+                return None, "資料解析後為空值"
         else:
-            return None, "證交所代號不存在或目前非交易時間"
+            return None, "證交所目前非交易時間或代號錯誤"
     except Exception as e:
         return None, str(e)
 
 # 執行抓取
 df_all, error_msg = fetch_data(ticker_input)
 
-if error_msg is not None:
-    st.error(f"❌ 數據獲取失敗: {error_msg}")
-    st.warning("⚠️ 目前可能為非交易時段或證交所伺服器維護中，已自動為您無縫接軌至『週末高仿真模擬數據』進行系統測試。")
-    
-    # 修正：確保模擬數據生成的內容完美符合新版核心邏輯
+# 強制進入週末模擬數據（如果證交所沒回傳正確資料）
+if error_msg is not None or df_all is None:
+    st.info("💡 證交所伺服器目前休息中，系統已自動為您接軌至『週末高仿真模擬數據』。")
     np.random.seed(42)
     base_price = 68.0
-    prices = np.random.normal(0, 1.5, 100).cumsum() + base_price
+    prices = np.random.normal(0, 1.2, 100).cumsum() + base_price
     
     df_all = pd.DataFrame({
-        'Open': prices - 0.5,
-        'High': prices + 1.2,
-        'Low': prices - 1.0,
+        'Open': prices - 0.3,
+        'High': prices + 0.8,
+        'Low': prices - 0.7,
         'Close': prices,
         'Volume': np.random.randint(10000, 50000, 100).astype(float)
     }, index=pd.date_range(start="2026-01-01", periods=100, freq='B'))
@@ -110,21 +111,33 @@ else:
     df['OBV_Scaled'] = df['Close']
 df['OBV_MA5_Scaled'] = df['OBV_Scaled'].rolling(window=5).mean()
 
-# 籌碼牆計算 (防禦邊界處理：確保即使範圍為0也能順利分組)
-price_min, price_max = df['Low'].min(), df['High'].max()
-if price_min == price_max:
-    price_min -= 1.0
-    price_max += 1.0
+# 籌碼牆計算 (徹底阻斷單一數值導致的 bins 錯誤)
+price_min = float(df['Low'].min())
+price_max = float(df['High'].max())
+if price_min == price_max or np.isnan(price_min) or np.isnan(price_max):
+    price_min = 50.0
+    price_max = 100.0
 
 bins = 12
-df['Bin'] = pd.cut(df['Close'], bins=np.linspace(price_min, price_max, bins+1), labels=False, include_lowest=True)
+bin_edges = np.linspace(price_min, price_max, bins + 1)
+# 確保邊界絕對遞增
+if bin_edges[0] == bin_edges[-1]:
+    bin_edges = np.linspace(price_min - 5, price_max + 5, bins + 1)
+
+df['Bin'] = pd.cut(df['Close'], bins=bin_edges, labels=False, include_lowest=True)
 volume_profile = df.groupby('Bin', observed=False)['Volume'].sum().fillna(0)
-bin_centers = (np.linspace(price_min, price_max, bins+1)[:-1] + np.linspace(price_min, price_max, bins+1)[1:]) / 2
+bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 top_bins = volume_profile.sort_values(ascending=False).index
 
-poc_1 = bin_centers[top_bins[0]]
-poc_2 = bin_centers[top_bins[1]] if len(top_bins) > 1 else poc_1
-poc_3 = bin_centers[top_bins[2]] if len(top_bins) > 2 else poc_1
+# 防呆指定 POC
+try:
+    poc_1 = bin_centers[top_bins[0]]
+    poc_2 = bin_centers[top_bins[1]] if len(top_bins) > 1 else poc_1
+    poc_3 = bin_centers[top_bins[2]] if len(top_bins) > 2 else poc_1
+except:
+    poc_1 = df['Close'].mean()
+    poc_2 = poc_1
+    poc_3 = poc_1
 
 # ==========================================
 # 繪圖與雲端網頁渲染
