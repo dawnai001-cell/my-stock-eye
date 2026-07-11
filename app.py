@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - 查價完全體 (全指標聯動)")
+st.title("📊 台股籌碼天眼 - 查價完全體 (含日期、全指標聯動)")
 
 # =======================================================
 # 側邊欄控制面板
@@ -162,7 +162,7 @@ except:
 
 
 # ==============================================================================
-# 🎨 畫布整合 (動態主+副圖指標大聯動)
+# 🎨 畫布整合 (將 日期 + 疊加指標 + 副圖 完美封裝進 customdata)
 # ==============================================================================
 fig = make_subplots(
     rows=2, cols=1, 
@@ -171,12 +171,12 @@ fig = make_subplots(
     row_heights=[0.72, 0.28]
 )
 
-# 🎯 核心黑科技：動態判斷「勾選了哪些主圖指標」與「選擇了哪個副圖」，組合成完整的自訂文字串
+# 🎯 動態封裝：這次把第一個元素牢牢鎖定為「當日日期」
 custom_hover_strings = []
 for i in range(len(df)):
     lines = []
     
-    # 1. 檢查勾選的主圖指標，加入清單
+    # 1. 第一層：主圖疊加指標
     if "5日均線 (MA5)" in overlay_options:
         lines.append(f"MA5:{df['MA5'].iloc[i]:.2f}")
     if "20日均線 (MA20)" in overlay_options:
@@ -190,10 +190,9 @@ for i in range(len(df)):
     if "拋物線指標 (SAR)" in overlay_options:
         lines.append(f"SAR:{df['SAR'].iloc[i]:.2f}")
     
-    # 2. 將主圖指標用換行符號連接
     overlay_text = "<br>".join(lines) if lines else "無疊加指標"
     
-    # 3. 檢查副圖選擇
+    # 2. 第二層：副圖指標
     if sub_plot_choice == "📊 經典成交量":
         sub_text = f"量:{df['Volume'].iloc[i]:.1f}張"
     elif sub_plot_choice == "⚡ 專業 KDJ 指標":
@@ -201,26 +200,28 @@ for i in range(len(df)):
     else:
         sub_text = f"OBV:{df['OBV'].iloc[i]:.1f} MA5:{df['OBV_MA5'].iloc[i]:.1f}"
         
-    # 4. 合體包裝 (主圖疊加與副圖用大區隔線分開)
-    total_info = f"{overlay_text}<br>--------------------<br>📊 {sub_text}"
-    custom_hover_strings.append(total_info)
+    # 3. 封裝：把「日期」作為最關鍵的資訊與後半段文字一起傳遞
+    # 這裡塞入兩個資訊：[日期字串, 疊加指標與副圖的綜合文字]
+    custom_hover_strings.append([df['Date_Str'].iloc[i], f"{overlay_text}<br>--------------------<br>📊 {sub_text}"])
 
 # --------- 【主圖】 ---------
 if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_B'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
 
-# 🎯 終極優化：hovertemplate 將開高低收、疊加指標、副圖指標一口氣和諧排版輸出！
+# 🎯 終極修正版 hovertemplate：
+# %{customdata[0]} 對應日期
+# %{customdata[1]} 對應指標數據
 fig.add_trace(go.Candlestick(
     x=df['Date_Str'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     name='K線',
     customdata=custom_hover_strings,
-    hovertemplate="開:%{open:.2f}<br>高:%{high:.2f}<br>低:%{low:.2f}<br>收:%{close:.2f}<br>--------------------<br>%{customdata}<extra></extra>",
+    hovertemplate="<b>%{customdata[0]}</b><br>開:%{open:.2f}<br>高:%{high:.2f}<br>低:%{low:.2f}<br>收:%{close:.2f}<br>--------------------<br>%{customdata[1]}<extra></extra>",
     increasing_line_color='#ff3333', increasing_fillcolor='#ff3333',
     decreasing_line_color='#00cc66', decreasing_fillcolor='#00cc66'
 ), row=1, col=1)
 
-# 所有背後的畫線一律 hoverinfo='skip'，避免出現多個混亂的小標籤，全部統一歸納在 K 線主標籤中！
+# 後台繪圖線條依然維持 skip，讓排版最乾淨
 if "5日均線 (MA5)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5', hoverinfo='skip'), row=1, col=1)
 if "20日均線 (MA20)" in overlay_options:
@@ -251,7 +252,7 @@ if "籌碼成本牆 (POC)" in overlay_options:
 if sub_plot_choice == "📊 經典成交量":
     vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
     fig.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, marker_line_width=0, name='成交量(張)', hoverinfo='skip'), row=2, col=1)
-elif sub_plot_choice == "⚡ 專業 KDJ 指標":
+elif sub_plot_choice == "⚡ 專業 KDJ 指批":
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K', hoverinfo='skip'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D', hoverinfo='skip'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J', hoverinfo='skip'), row=2, col=1)
@@ -270,7 +271,7 @@ fig.update_layout(
     margin=dict(l=10, r=10, t=10, b=10),
     hovermode="closest", 
     hoverlabel=dict(
-        bgcolor="rgba(30, 30, 30, 0.9)",  # 質感半透明黑卡
+        bgcolor="rgba(30, 30, 30, 0.9)",  
         font_size=14,
         font_family="monospace",
         align="left",
