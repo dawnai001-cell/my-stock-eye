@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - 終極完全體")
+st.title("📊 台股籌碼天眼 - 終極完全體 (究極無瑕版)")
 
 # =======================================================
 # 側邊欄控制面板
@@ -17,7 +17,7 @@ st.sidebar.header("🛠️ 交易控制台")
 
 ticker_input = st.sidebar.text_input("請輸入台股代號（如 2317 或 6788）：", value="2317").strip()
 
-# 週期切換（置於主圖上方）
+# 週期切換
 period_choice = st.radio(
     "請選擇 K 線週期：",
     ["📅 日線 (Daily)", "📆 週線 (Weekly)", "🌙 月線 (Monthly)"],
@@ -56,16 +56,16 @@ sub_plot_choice = st.sidebar.radio(
 # ==========================================
 @st.cache_data(ttl=3600)
 def load_stock_data(ticker):
-    # 下載 2 年資料以確保週/月線計算指標時不會斷頭
+    # 下載 6 年資料，確保月線有足夠 K 棒
     try:
-        df_yf = yf.download(f"{ticker}.TW", period="2y", progress=False)
+        df_yf = yf.download(f"{ticker}.TW", period="6y", progress=False)
         if not df_yf.empty and len(df_yf) > 2:
             return process_df(df_yf)
     except:
         pass
         
     try:
-        df_yf = yf.download(f"{ticker}.TWO", period="2y", progress=False)
+        df_yf = yf.download(f"{ticker}.TWO", period="6y", progress=False)
         if not df_yf.empty and len(df_yf) > 2:
             return process_df(df_yf)
     except:
@@ -106,7 +106,7 @@ def resample_data(df, choice):
 df_all = resample_data(df_raw, period_choice)
 
 # ==========================================
-# 📈 指標計算艙 (各週期全指標通吃)
+# 📈 指標計算艙
 # ==========================================
 df_all['MA5'] = df_all['Close'].rolling(window=5).mean()
 df_all['MA20'] = df_all['Close'].rolling(window=20).mean()
@@ -152,14 +152,18 @@ for i in range(1, len(df_all)):
 df_all['SAR'] = sars
 df_all['SAR_Type'] = sar_types
 
-# 一目均衡表
-high_9 = df_all['High'].rolling(window=9).max(); low_9 = df_all['Low'].rolling(window=9).min()
-df_all['Tenkan_Sen'] = (high_9 + low_9) / 2
-high_26 = df_all['High'].rolling(window=26).max(); low_26 = df_all['Low'].rolling(window=26).min()
-df_all['Kijun_Sen'] = (high_26 + low_26) / 2
-df_all['Senkou_Span_A'] = ((df_all['Tenkan_Sen'] + df_all['Kijun_Sen']) / 2).shift(26)
-high_52 = df_all['High'].rolling(window=52).max(); low_52 = df_all['Low'].rolling(window=52).min()
-df_all['Senkou_Span_B'] = ((high_52 + low_52) / 2).shift(26)
+# 一目均衡表 (防禦型：長度不足自動填 NaN)
+if len(df_all) >= 52:
+    high_9 = df_all['High'].rolling(window=9).max(); low_9 = df_all['Low'].rolling(window=9).min()
+    df_all['Tenkan_Sen'] = (high_9 + low_9) / 2
+    high_26 = df_all['High'].rolling(window=26).max(); low_26 = df_all['Low'].rolling(window=26).min()
+    df_all['Kijun_Sen'] = (high_26 + low_26) / 2
+    df_all['Senkou_Span_A'] = ((df_all['Tenkan_Sen'] + df_all['Kijun_Sen']) / 2).shift(26)
+    high_52 = df_all['High'].rolling(window=52).max(); low_52 = df_all['Low'].rolling(window=52).min()
+    df_all['Senkou_Span_B'] = ((high_52 + low_52) / 2).shift(26)
+else:
+    df_all['Tenkan_Sen'] = np.nan; df_all['Kijun_Sen'] = np.nan
+    df_all['Senkou_Span_A'] = np.nan; df_all['Senkou_Span_B'] = np.nan
 
 # KDJ & OBV
 df_all['Is_Up'] = df_all['Close'] >= df_all['Open']
@@ -187,17 +191,24 @@ if "月線" in period_choice:
 else:
     df['Date_Str'] = df.index.strftime('%Y-%m-%d')
 
-# 籌碼牆 POC
-price_min, price_max = float(df['Low'].min()), float(df['High'].max())
-bins = 12; bin_edges = np.linspace(price_min, price_max, bins + 1)
-df['Bin'] = pd.cut(df['Close'], bins=bin_edges, labels=False, include_lowest=True)
-volume_profile = df.groupby('Bin', observed=False)['Volume'].sum().fillna(0)
-bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-top_bins = volume_profile.sort_values(ascending=False).index
+# 🎯 籌碼牆 POC 徹底防禦型寫法
+poc_1, poc_2, poc_3 = df['Close'].mean(), df['Close'].mean(), df['Close'].mean()
 try:
-    poc_1 = bin_centers[top_bins[0]]; poc_2 = bin_centers[top_bins[1]]; poc_3 = bin_centers[top_bins[2]]
+    price_min, price_max = float(df['Low'].min()), float(df['High'].max())
+    if price_max > price_min:
+        bins = 12
+        bin_edges = np.linspace(price_min, price_max, bins + 1)
+        df['Bin'] = pd.cut(df['Close'], bins=bin_edges, labels=False, include_lowest=True)
+        volume_profile = df.groupby('Bin', observed=False)['Volume'].sum().fillna(0)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        top_bins = volume_profile.sort_values(ascending=False).index
+        
+        # 逐層安全檢查，防止 Bin 分類不足 3 個崩潰
+        if len(top_bins) >= 1: poc_1 = bin_centers[top_bins[0]]
+        if len(top_bins) >= 2: poc_2 = bin_centers[top_bins[1]]
+        if len(top_bins) >= 3: poc_3 = bin_centers[top_bins[2]]
 except:
-    poc_1 = df['Close'].mean(); poc_2 = poc_1; poc_3 = poc_1
+    pass
 
 
 # ==============================================================================
@@ -216,20 +227,19 @@ for i in range(len(df)):
     lines = []
     p_tag = "週" if "週線" in period_choice else ("月" if "月線" in period_choice else "日")
     
-    if "5日均線 (MA5)" in overlay_options:
-        lines.append(f"{p_tag}5: {df['MA5'].iloc[i]:.2f}")
-    if "20日均線 (MA20)" in overlay_options:
-        lines.append(f"{p_tag}20: {df['MA20'].iloc[i]:.2f}")
-    if "60日均線 (MA60)" in overlay_options:
-        lines.append(f"{p_tag}60: {df['MA60'].iloc[i]:.2f}")
-    if "布林通道 (Bollinger)" in overlay_options:
-        lines.append(f"布林: {df['BB_Up'].iloc[i]:.2f} / {df['BB_Low'].iloc[i]:.2f}")
-    if "肯特納通道 (Keltner)" in overlay_options:
-        lines.append(f"肯特納: {df['KC_Up'].iloc[i]:.2f} / {df['KC_Low'].iloc[i]:.2f}")
-    if "拋物線指標 (SAR)" in overlay_options:
-        lines.append(f"SAR: {df['SAR'].iloc[i]:.2f}")
+    # 指標數值安全防護檢查
+    def fmt_val(v): return f"{v:.2f}" if not pd.isna(v) else "--"
+
+    if "5日均線 (MA5)" in overlay_options: lines.append(f"{p_tag}5: {fmt_val(df['MA5'].iloc[i])}")
+    if "20日均線 (MA20)" in overlay_options: lines.append(f"{p_tag}20: {fmt_val(df['MA20'].iloc[i])}")
+    if "60日均線 (MA60)" in overlay_options: lines.append(f"{p_tag}60: {fmt_val(df['MA60'].iloc[i])}")
+    if "布林通道 (Bollinger)" in overlay_options: 
+        lines.append(f"布林: {fmt_val(df['BB_Up'].iloc[i])} / {fmt_val(df['BB_Low'].iloc[i])}")
+    if "肯特納通道 (Keltner)" in overlay_options: 
+        lines.append(f"肯特納: {fmt_val(df['KC_Up'].iloc[i])} / {fmt_val(df['KC_Low'].iloc[i])}")
+    if "拋物線指標 (SAR)" in overlay_options: lines.append(f"SAR: {fmt_val(df['SAR'].iloc[i])}")
     if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
-        lines.append(f"一目A: {df['Senkou_Span_A'].iloc[i]:.2f} | B: {df['Senkou_Span_B'].iloc[i]:.2f}")
+        lines.append(f"一目A: {fmt_val(df['Senkou_Span_A'].iloc[i])} | B: {fmt_val(df['Senkou_Span_B'].iloc[i])}")
     
     overlay_text = "<br>".join(lines) if lines else "無疊加指標"
     
@@ -243,8 +253,8 @@ for i in range(len(df)):
     custom_hover_strings.append([df['Date_Str'].iloc[i], f"{overlay_text}<br>--------------------<br>📊 {sub_text}"])
 
 # --------- 【主圖 (Row 1)】 ---------
-# 一目均衡表 (確保繪製在 K 線後方背景)
-if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
+# 一目均衡表
+if "一目均衡表 (Ichimoku Cloud)" in overlay_options and not pd.isna(df['Senkou_Span_A'].max()):
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_B'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
 
