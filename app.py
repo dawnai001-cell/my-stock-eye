@@ -34,16 +34,12 @@ def fetch_data(ticker):
         
         if raw_data['stat'] == 'OK':
             raw_fields = raw_data['data']
-            # 自動偵測證交所當前 API 回傳的總欄位數 (9欄或10欄皆可相容)
             actual_cols_num = len(raw_fields[0]) if raw_fields else 9
             columns = [f'col_{id}' for id in range(actual_cols_num)]
-            
-            # 強制指定證交所前 7 個核心關鍵欄位的位置
             columns[0], columns[1], columns[3], columns[4], columns[5], columns[6] = 'Date', 'Volume', 'Open', 'High', 'Low', 'Close'
             
             df_raw = pd.DataFrame(raw_fields, columns=columns)
             
-            # 💡 終極日期轉換方案：手動將民國年(如 115/07/10) 拆開並加上 1911 轉成西元年，完美避開 Pandas 版本相容性問題
             def convert_taiwan_date(date_str):
                 try:
                     parts = date_str.split('/')
@@ -71,13 +67,20 @@ df_all, error_msg = fetch_data(ticker_input)
 
 if error_msg is not None:
     st.error(f"❌ 數據獲取失敗: {error_msg}")
-    st.warning("自動切換至高仿真備用模擬數據...")
+    st.warning("⚠️ 目前可能為非交易時段或證交所伺服器維護中，已自動為您無縫接軌至『週末高仿真模擬數據』進行系統測試。")
+    
+    # 修正：確保模擬數據生成的內容完美符合新版核心邏輯
     np.random.seed(42)
-    prices = np.random.normal(0, 1.5, 90).cumsum() + 68
+    base_price = 68.0
+    prices = np.random.normal(0, 1.5, 100).cumsum() + base_price
+    
     df_all = pd.DataFrame({
-        'Open': prices - 0.5, 'High': prices + 1, 'Low': prices - 1, 'Close': prices,
-        'Volume': np.random.randint(10000, 50000, 90)
-    }, index=pd.date_range(start="2026-05-01", periods=90, freq='B'))
+        'Open': prices - 0.5,
+        'High': prices + 1.2,
+        'Low': prices - 1.0,
+        'Close': prices,
+        'Volume': np.random.randint(10000, 50000, 100).astype(float)
+    }, index=pd.date_range(start="2026-01-01", periods=100, freq='B'))
 
 # 根據使用者拉桿的天數切取數據
 df = df_all.tail(check_days).copy()
@@ -107,11 +110,15 @@ else:
     df['OBV_Scaled'] = df['Close']
 df['OBV_MA5_Scaled'] = df['OBV_Scaled'].rolling(window=5).mean()
 
-# 籌碼牆計算
+# 籌碼牆計算 (防禦邊界處理：確保即使範圍為0也能順利分組)
 price_min, price_max = df['Low'].min(), df['High'].max()
+if price_min == price_max:
+    price_min -= 1.0
+    price_max += 1.0
+
 bins = 12
-df['Bin'] = pd.cut(df['Close'], bins=np.linspace(price_min, price_max, bins+1), labels=False)
-volume_profile = df.groupby('Bin')['Volume'].sum().fillna(0)
+df['Bin'] = pd.cut(df['Close'], bins=np.linspace(price_min, price_max, bins+1), labels=False, include_lowest=True)
+volume_profile = df.groupby('Bin', observed=False)['Volume'].sum().fillna(0)
 bin_centers = (np.linspace(price_min, price_max, bins+1)[:-1] + np.linspace(price_min, price_max, bins+1)[1:]) / 2
 top_bins = volume_profile.sort_values(ascending=False).index
 
