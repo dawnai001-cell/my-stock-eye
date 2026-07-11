@@ -159,7 +159,6 @@ except:
 # ==========================================
 # 🎨 Plotly 智慧互動圖表渲染引擎
 # ==========================================
-# 建立主圖 (包含 K 線與疊加指標)
 fig = go.Figure()
 
 # 1. 一目均衡表雲帶 (優先繪製在底層)
@@ -208,26 +207,26 @@ if "拋物線指標 (SAR)" in overlay_options:
 
 # 7. 籌碼成本牆 (POC) — 水平切線
 if "籌碼成本牆 (POC)" in overlay_options:
-    fig.add_shape(type="line", x0=0, y0=poc_1, x1=len(df)-1, y1=poc_1, line=dict(color="#ff1a1a", width=2))
-    fig.add_shape(type="line", x0=0, y0=poc_2, x1=len(df)-1, y1=poc_2, line=dict(color="#ff6600", width=1.5, dash="dash"))
-    fig.add_shape(type="line", x0=0, y0=poc_3, x1=len(df)-1, y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"))
-    # 加註標籤供懸停或直觀閱讀
+    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_1, x1=df['Date_Str'].iloc[-1], y1=poc_1, line=dict(color="#ff1a1a", width=2))
+    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_2, x1=df['Date_Str'].iloc[-1], y1=poc_2, line=dict(color="#ff6600", width=1.5, dash="dash"))
+    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_3, x1=df['Date_Str'].iloc[-1], y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"))
     fig.add_trace(go.Scatter(x=[df['Date_Str'].iloc[0]], y=[poc_1], mode="text", text=[f"POC1: {poc_1:.1f}"], textposition="top right", showlegend=False, hoverinfo='skip'))
 
 # 配置主圖排版
 fig.update_layout(
     title=f"📈 {ticker_input} 互動看盤主圖 ({check_days}天)",
     template="plotly_dark",
-    xaxis_rangeslider_visible=False, # 關閉下方礙眼的滑塊
+    xaxis_rangeslider_visible=False,
     height=500,
     margin=dict(l=10, r=10, t=40, b=10),
-    hovermode="x unified" # 🎯 靈魂功能：滑鼠指到 X 軸，該日所有指標數據在同一個視窗彈出！
+    hovermode="x unified",
+    xaxis=dict(type='category') # 🎯 核心修正：強制 X 軸為「分類標籤」，秒速沒收週末斷軌格子！
 )
 st.plotly_chart(fig, use_container_width=True)
 
 
 # ==========================================
-# 📈 副圖指標控制艙 (同樣採用極致互動)
+# 📈 副圖指標控制艙
 # ==========================================
 st.write("### 📈 副圖指標控制艙")
 tab1, tab2, tab3 = st.tabs(["📊 經典成交量", "⚡ 專業 KDJ 指標", "🌊 OBV 籌碼動能"])
@@ -236,7 +235,7 @@ with tab1:
     fig_vol = go.Figure()
     vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
     fig_vol.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, name='成交量(張)'))
-    fig_vol.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified")
+    fig_vol.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified", xaxis=dict(type='category'))
     st.plotly_chart(fig_vol, use_container_width=True)
 
 with tab2:
@@ -244,14 +243,14 @@ with tab2:
     fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K'))
     fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D'))
     fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J'))
-    fig_kdj.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified")
+    fig_kdj.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified", xaxis=dict(type='category'))
     st.plotly_chart(fig_kdj, use_container_width=True)
 
 with tab3:
     fig_obv = go.Figure()
     fig_obv.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV'], line=dict(color='#00ffff', width=1.5), name='OBV'))
     fig_obv.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV_MA5'], line=dict(color='#ffff00', width=1, dash='dot'), name='OBV_MA5'))
-    fig_obv.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified")
+    fig_obv.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified", xaxis=dict(type='category'))
     st.plotly_chart(fig_obv, use_container_width=True)
 
 st.write("### 📝 近期交易數據明細")
