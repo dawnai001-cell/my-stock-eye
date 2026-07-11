@@ -8,8 +8,7 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - 互動網頁完全體")
-st.write("全面升級 Plotly 引擎！支援滑鼠懸停、智慧十字游標與開高低收精確數值顯示。")
+st.title("📊 台股籌碼天眼 - 三竹看盤完全體")
 
 # =======================================================
 # 側邊欄控制面板
@@ -27,11 +26,17 @@ overlay_options = st.sidebar.multiselect(
     default=["籌碼成本牆 (POC)"]
 )
 
+# 讓使用者在側邊欄直接切換副圖，就像三竹切換標籤一樣
 st.sidebar.write("---")
-st.sidebar.info("💡 頂級互動體驗：\n把滑鼠移到主圖的 K 棒上，就能直接看到精確的開高低收！在圖表上拖曳還能局部放大喔！")
+st.sidebar.subheader("📊 副圖指標切換")
+sub_plot_choice = st.sidebar.radio(
+    "選擇目前要看哪個副圖：",
+    ["📊 經典成交量", "⚡ 專業 KDJ 指標", "🌊 OBV 籌碼動能"],
+    index=0
+)
 
 # ==========================================
-# 📊 數據獲取與計算（自動判斷上市/上櫃）
+# 📊 數據獲取與計算
 # ==========================================
 @st.cache_data(ttl=3600)
 def load_stock_data(ticker):
@@ -65,7 +70,7 @@ def process_df(df_yf):
 df_all = load_stock_data(ticker_input)
 
 if df_all is None or len(df_all) == 0:
-    st.error("❌ 無法取得該股票數據，請檢查代號是否輸入正確（如：2317 或 6788）。")
+    st.error("❌ 無法取得該股票數據，請檢查代號是否輸入正確。")
     st.stop()
 
 # ==========================================
@@ -142,7 +147,8 @@ df_all['K'] = k_list[1:]; df_all['D'] = d_list[1:]; df_all['J'] = 3 * df_all['K'
 
 # 擷取指定觀測天數
 df = df_all.tail(check_days).copy()
-df['Date_Str'] = df.index.strftime('%Y-%m-%d')
+# 🎯 關鍵優化：只顯示「年份-月份」，大幅縮短文字寬度，讓排版不凌亂
+df['Date_Str'] = df.index.strftime('%Y-%m')
 
 # 籌碼牆 POC 計算
 price_min, price_max = float(df['Low'].min()), float(df['High'].max())
@@ -156,102 +162,113 @@ try:
 except:
     poc_1 = df['Close'].mean(); poc_2 = poc_1; poc_3 = poc_1
 
-# ==========================================
-# 🎨 Plotly 智慧互動圖表渲染引擎
-# ==========================================
-fig = go.Figure()
+# ==============================================================================
+# 🎨 核心打造：複刻三竹看盤（Subplots 聯動上下圖，共用 X 軸且無縫隙）
+# ==============================================================================
+# 建立一個 2 行 1 列的圖表，高度比例為 70% 主圖、30% 副圖，中間留極小間距 (vertical_spacing)
+fig = make_subplots(
+    rows=2, cols=1, 
+    shared_xaxes=True, 
+    vertical_spacing=0.04, 
+    row_heights=[0.7, 0.3]
+)
 
-# 1. 一目均衡表雲帶 (優先繪製在底層)
+# --------- 【第一行：主圖 K 線系統】 ---------
+# 一目均衡表雲帶
 if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=df['Date_Str'], y=df['Senkou_Span_B'], 
         fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', 
         line=dict(width=0), name='一目雲帶', hoverinfo='skip'
-    ))
+    ), row=1, col=1)
 
-# 2. 核心 K 線圖
+# 主 K 線
 fig.add_trace(go.Candlestick(
     x=df['Date_Str'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     name='K線', text=df['Volume'].apply(lambda x: f"量: {x:.1f}張"),
     increasing_line_color='#ff3333', increasing_fillcolor='#ff3333',
     decreasing_line_color='#00cc66', decreasing_fillcolor='#00cc66'
-))
+), row=1, col=1)
 
-# 3. 均線系統
+# 均線
 if "5日均線 (MA5)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5'), row=1, col=1)
 if "20日均線 (MA20)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA20'], line=dict(color='#e377c2', width=1.8), name='MA20'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA20'], line=dict(color='#e377c2', width=1.8), name='MA20'), row=1, col=1)
 if "60日均線 (MA60)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA60'], line=dict(color='#9467bd', width=2.0), name='MA60'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA60'], line=dict(color='#9467bd', width=2.0), name='MA60'), row=1, col=1)
 
-# 4. 布林通道
+# 布林通道
 if "布林通道 (Bollinger)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['BB_Up'], line=dict(color='#ff4d4d', width=1, dash='dot'), name='布林上軌'))
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['BB_Low'], line=dict(color='#ff4d4d', width=1, dash='dot'), name='布林下軌', fill='tonexty', fillcolor='rgba(255,0,0,0.02)'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['BB_Up'], line=dict(color='#ff4d4d', width=1, dash='dot'), name='布林上軌'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['BB_Low'], line=dict(color='#ff4d4d', width=1, dash='dot'), name='布林下軌', fill='tonexty', fillcolor='rgba(255,0,0,0.02)'), row=1, col=1)
 
-# 5. 肯特納通道
+# 肯特納通道
 if "肯特納通道 (Keltner)" in overlay_options:
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['KC_Up'], line=dict(color='#00bfff', width=1), name='肯特納上軌'))
-    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['KC_Low'], line=dict(color='#00bfff', width=1), name='肯特納下軌', fill='tonexty', fillcolor='rgba(0,191,255,0.02)'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['KC_Up'], line=dict(color='#00bfff', width=1), name='肯特納上軌'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['KC_Low'], line=dict(color='#00bfff', width=1), name='肯特納下軌', fill='tonexty', fillcolor='rgba(0,191,255,0.02)'), row=1, col=1)
 
-# 6. 智慧紅綠變色 SAR
+# SAR
 if "拋物線指標 (SAR)" in overlay_options:
     long_pts = df[df['SAR_Type'] == 'long']
     short_pts = df[df['SAR_Type'] == 'short']
     if not long_pts.empty:
-        fig.add_trace(go.Scatter(x=long_pts['Date_Str'], y=long_pts['SAR'], mode='markers', marker=dict(color='#ff3333', size=5), name='SAR多頭支撐'))
+        fig.add_trace(go.Scatter(x=long_pts['Date_Str'], y=long_pts['SAR'], mode='markers', marker=dict(color='#ff3333', size=5), name='SAR多頭支撐'), row=1, col=1)
     if not short_pts.empty:
-        fig.add_trace(go.Scatter(x=short_pts['Date_Str'], y=short_pts['SAR'], mode='markers', marker=dict(color='#00cc66', size=5), name='SAR空頭壓力'))
+        fig.add_trace(go.Scatter(x=short_pts['Date_Str'], y=short_pts['SAR'], mode='markers', marker=dict(color='#00cc66', size=5), name='SAR空頭壓力'), row=1, col=1)
 
-# 7. 籌碼成本牆 (POC) — 水平切線
+# 籌碼成本牆 POC
 if "籌碼成本牆 (POC)" in overlay_options:
-    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_1, x1=df['Date_Str'].iloc[-1], y1=poc_1, line=dict(color="#ff1a1a", width=2))
-    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_2, x1=df['Date_Str'].iloc[-1], y1=poc_2, line=dict(color="#ff6600", width=1.5, dash="dash"))
-    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_3, x1=df['Date_Str'].iloc[-1], y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"))
-    fig.add_trace(go.Scatter(x=[df['Date_Str'].iloc[0]], y=[poc_1], mode="text", text=[f"POC1: {poc_1:.1f}"], textposition="top right", showlegend=False, hoverinfo='skip'))
+    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_1, x1=df['Date_Str'].iloc[-1], y1=poc_1, line=dict(color="#ff1a1a", width=2), row=1, col=1)
+    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_2, x1=df['Date_Str'].iloc[-1], y1=poc_2, line=dict(color="#ff6600", width=1.5, dash="dash"), row=1, col=1)
+    fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_3, x1=df['Date_Str'].iloc[-1], y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"), row=1, col=1)
 
-# 配置主圖排版
+
+# --------- 【第二行：動態切換副圖系統】 ---------
+if sub_plot_choice == "📊 經典成交量":
+    vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
+    fig.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, name='成交量(張)'), row=2, col=1)
+
+elif sub_plot_choice == "⚡ 專業 KDJ 指標":
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J'), row=2, col=1)
+
+elif sub_plot_choice == "🌊 OBV 籌碼動能":
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV'], line=dict(color='#00ffff', width=1.5), name='OBV'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV_MA5'], line=dict(color='#ffff00', width=1, dash='dot'), name='OBV_MA5'), row=2, col=1)
+
+
+# ==========================================
+# 📐 三竹美化外觀細節調整艙
+# ==========================================
 fig.update_layout(
-    title=f"📈 {ticker_input} 互動看盤主圖 ({check_days}天)",
     template="plotly_dark",
     xaxis_rangeslider_visible=False,
-    height=500,
-    margin=dict(l=10, r=10, t=40, b=10),
+    height=650,                         # 放大整體高度，看盤更舒服
+    margin=dict(l=10, r=10, t=20, b=20),
     hovermode="x unified",
-    xaxis=dict(type='category') # 🎯 核心修正：強制 X 軸為「分類標籤」，秒速沒收週末斷軌格子！
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1) # 讓圖例橫向排在頂部
 )
+
+# 🎯 全面微調 X 軸與 Y 軸，完美複刻三竹
+fig.update_xaxes(
+    type='category', 
+    tickangle=0,                        # 讓日期文字躺平不旋轉！
+    nticks=6,                           # 限制畫面上最多只出現 6 個日期標籤，避免擁擠
+    showgrid=True, gridcolor='rgba(255,255,255,0.05)',
+    row=2, col=1                        # 只有最下方的副圖顯示日期
+)
+
+# 隱藏主圖下方的日期文字，達成無縫銜接
+fig.update_xaxes(showticklabels=False, row=1, col=1)
+
+fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.05)')
+
+# 輸出整合成一體的超級圖表
 st.plotly_chart(fig, use_container_width=True)
 
-
-# ==========================================
-# 📈 副圖指標控制艙
-# ==========================================
-st.write("### 📈 副圖指標控制艙")
-tab1, tab2, tab3 = st.tabs(["📊 經典成交量", "⚡ 專業 KDJ 指標", "🌊 OBV 籌碼動能"])
-
-with tab1:
-    fig_vol = go.Figure()
-    vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
-    fig_vol.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, name='成交量(張)'))
-    fig_vol.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified", xaxis=dict(type='category'))
-    st.plotly_chart(fig_vol, use_container_width=True)
-
-with tab2:
-    fig_kdj = go.Figure()
-    fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K'))
-    fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D'))
-    fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J'))
-    fig_kdj.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified", xaxis=dict(type='category'))
-    st.plotly_chart(fig_kdj, use_container_width=True)
-
-with tab3:
-    fig_obv = go.Figure()
-    fig_obv.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV'], line=dict(color='#00ffff', width=1.5), name='OBV'))
-    fig_obv.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV_MA5'], line=dict(color='#ffff00', width=1, dash='dot'), name='OBV_MA5'))
-    fig_obv.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified", xaxis=dict(type='category'))
-    st.plotly_chart(fig_obv, use_container_width=True)
-
+# 歷史數據明細
 st.write("### 📝 近期交易數據明細")
 st.dataframe(df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(10))
