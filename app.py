@@ -34,7 +34,7 @@ def fetch_data(ticker):
         
         if raw_data['stat'] == 'OK':
             raw_fields = raw_data['data']
-            # 💡 智能適應欄位：自動偵測證交所當前 API 回傳的總欄位數 (9欄或10欄皆可相容)
+            # 自動偵測證交所當前 API 回傳的總欄位數 (9欄或10欄皆可相容)
             actual_cols_num = len(raw_fields[0]) if raw_fields else 9
             columns = [f'col_{id}' for id in range(actual_cols_num)]
             
@@ -42,7 +42,19 @@ def fetch_data(ticker):
             columns[0], columns[1], columns[3], columns[4], columns[5], columns[6] = 'Date', 'Volume', 'Open', 'High', 'Low', 'Close'
             
             df_raw = pd.DataFrame(raw_fields, columns=columns)
-            df = pd.DataFrame(index=pd.to_datetime(df_raw['Date'].str.replace('/', '-'), taiwan_era=True, errors='coerce'))
+            
+            # 💡 終極日期轉換方案：手動將民國年(如 115/07/10) 拆開並加上 1911 轉成西元年，完美避開 Pandas 版本相容性問題
+            def convert_taiwan_date(date_str):
+                try:
+                    parts = date_str.split('/')
+                    year = int(parts[0]) + 1911
+                    return f"{year}-{parts[1]}-{parts[2]}"
+                except:
+                    return None
+            
+            converted_dates = df_raw['Date'].apply(convert_taiwan_date)
+            df = pd.DataFrame(index=pd.to_datetime(converted_dates, errors='coerce'))
+            
             df['Open'] = df_raw['Open'].str.replace(',', '').astype(float)
             df['High'] = df_raw['High'].str.replace(',', '').astype(float)
             df['Low'] = df_raw['Low'].str.replace(',', '').astype(float)
