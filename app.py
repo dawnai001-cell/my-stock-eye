@@ -35,7 +35,7 @@ def load_stock_data(ticker):
         
     try:
         df_yf = yf.download(f"{ticker}.TWO", period="1y", progress=False)
-        if not df_yf.empty group and len(df_yf) > 2:
+        if not df_yf.empty and len(df_yf) > 2:
             return process_df(df_yf)
     except:
         pass
