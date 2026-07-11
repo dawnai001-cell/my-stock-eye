@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import yfinance as yf
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - 雲端網頁版系統")
-st.write("利用雲端伺服器進行數據渲染，完美避開手機閃退問題。")
+st.title("📊 台股籌碼天眼 - 互動網頁完全體")
+st.write("全面升級 Plotly 引擎！支援滑鼠懸停、智慧十字游標與開高低收精確數值顯示。")
 
 # =======================================================
 # 側邊欄控制面板
@@ -27,7 +28,7 @@ overlay_options = st.sidebar.multiselect(
 )
 
 st.sidebar.write("---")
-st.sidebar.info("💡 視覺化再進化：\n現在拋物線 (SAR) 升級為「紅綠智慧變色點」！點在 K 線下方顯示為紅點（多頭防禦），點在上方顯示為綠點（空頭施壓），看盤直覺度拉滿！")
+st.sidebar.info("💡 頂級互動體驗：\n把滑鼠移到主圖的 K 棒上，就能直接看到精確的開高低收！在圖表上拖曳還能局部放大喔！")
 
 # ==========================================
 # 📊 數據獲取與計算（自動判斷上市/上櫃）
@@ -68,20 +69,17 @@ if df_all is None or len(df_all) == 0:
     st.stop()
 
 # ==========================================
-# 📈 擴充指標計算艙
+# 📈 指標計算艙（維持高精度算力）
 # ==========================================
-# 1. 均線計算
 df_all['MA5'] = df_all['Close'].rolling(window=5).mean()
 df_all['MA20'] = df_all['Close'].rolling(window=20).mean()
 df_all['MA60'] = df_all['Close'].rolling(window=60).mean()
 
-# 2. 布林通道計算
 df_all['BB_Mid'] = df_all['MA20']
 df_all['BB_Std'] = df_all['Close'].rolling(window=20).std()
 df_all['BB_Up'] = df_all['BB_Mid'] + (2 * df_all['BB_Std'])
 df_all['BB_Low'] = df_all['BB_Mid'] - (2 * df_all['BB_Std'])
 
-# 3. 肯特納通道計算
 df_all['KC_Mid'] = df_all['Close'].ewm(span=20, adjust=False).mean()
 high_low = df_all['High'] - df_all['Low']
 high_close = (df_all['High'] - df_all['Close'].shift()).abs()
@@ -91,236 +89,170 @@ df_all['ATR'] = tr.rolling(window=20).mean()
 df_all['KC_Up'] = df_all['KC_Mid'] + (2 * df_all['ATR'])
 df_all['KC_Low'] = df_all['KC_Mid'] - (2 * df_all['ATR'])
 
-# 4. 拋物線指標 (SAR) 附帶多空狀態紀錄
+# SAR 計算
 sars = list(df_all['Low'].copy())
-sar_types = ["long"] * len(df_all) # 用來記錄這顆點點是在下方(long)還是上方(short)
-af = 0.02
-max_af = 0.2
-ep = df_all['High'].iloc[0]
-is_long = True
-sars[0] = df_all['Low'].iloc[0]
-
+sar_types = ["long"] * len(df_all)
+af = 0.02; max_af = 0.2; ep = df_all['High'].iloc[0]; is_long = True; sars[0] = df_all['Low'].iloc[0]
 for i in range(1, len(df_all)):
     prev_sar = sars[i-1]
     if is_long:
         sars[i] = prev_sar + af * (ep - prev_sar)
         sars[i] = min(sars[i], df_all['Low'].iloc[i-1], df_all['Low'].iloc[max(0, i-2)])
         if df_all['Low'].iloc[i] < sars[i]:
-            is_long = False
-            sars[i] = ep
-            af = 0.02
-            ep = df_all['Low'].iloc[i]
+            is_long = False; sars[i] = ep; af = 0.02; ep = df_all['Low'].iloc[i]
     else:
         sars[i] = prev_sar + af * (ep - prev_sar)
         sars[i] = max(sars[i], df_all['High'].iloc[i-1], df_all['High'].iloc[max(0, i-2)])
         if df_all['High'].iloc[i] > sars[i]:
-            is_long = True
-            sars[i] = ep
-            af = 0.02
-            ep = df_all['High'].iloc[i]
-            
+            is_long = True; sars[i] = ep; af = 0.02; ep = df_all['High'].iloc[i]
     if is_long:
-        if df_all['High'].iloc[i] > ep:
-            ep = df_all['High'].iloc[i]
-            af = min(af + 0.02, max_af)
+        if df_all['High'].iloc[i] > ep: ep = df_all['High'].iloc[i]; af = min(af + 0.02, max_af)
     else:
-        if df_all['Low'].iloc[i] < ep:
-            ep = df_all['Low'].iloc[i]
-            af = min(af + 0.02, max_af)
-            
+        if df_all['Low'].iloc[i] < ep: ep = df_all['Low'].iloc[i]; af = min(af + 0.02, max_af)
     sar_types[i] = "long" if is_long else "short"
-
 df_all['SAR'] = sars
 df_all['SAR_Type'] = sar_types
 
-# 5. 一目均衡表 (Ichimoku Cloud) 計算
-high_9 = df_all['High'].rolling(window=9).max()
-low_9 = df_all['Low'].rolling(window=9).min()
+# 一目均衡表
+high_9 = df_all['High'].rolling(window=9).max(); low_9 = df_all['Low'].rolling(window=9).min()
 df_all['Tenkan_Sen'] = (high_9 + low_9) / 2
-
-high_26 = df_all['High'].rolling(window=26).max()
-low_26 = df_all['Low'].rolling(window=26).min()
+high_26 = df_all['High'].rolling(window=26).max(); low_26 = df_all['Low'].rolling(window=26).min()
 df_all['Kijun_Sen'] = (high_26 + low_26) / 2
-
 df_all['Senkou_Span_A'] = ((df_all['Tenkan_Sen'] + df_all['Kijun_Sen']) / 2).shift(26)
-high_52 = df_all['High'].rolling(window=52).max()
-low_52 = df_all['Low'].rolling(window=52).min()
+high_52 = df_all['High'].rolling(window=52).max(); low_52 = df_all['Low'].rolling(window=52).min()
 df_all['Senkou_Span_B'] = ((high_52 + low_52) / 2).shift(26)
 
-# 6. KDJ & OBV 計算
-df_all['Price_Change'] = df_all['Close'].diff()
+# KDJ & OBV
 df_all['Is_Up'] = df_all['Close'] >= df_all['Open']
-
 obv_list = [0.0]
 for i in range(1, len(df_all)):
-    if df_all['Close'].iloc[i] > df_all['Close'].iloc[i-1]:
-        obv_list.append(obv_list[-1] + df_all['Volume'].iloc[i])
-    elif df_all['Close'].iloc[i] < df_all['Close'].iloc[i-1]:
-        obv_list.append(obv_list[-1] - df_all['Volume'].iloc[i])
-    else:
-        obv_list.append(obv_list[-1])
+    if df_all['Close'].iloc[i] > df_all['Close'].iloc[i-1]: obv_list.append(obv_list[-1] + df_all['Volume'].iloc[i])
+    elif df_all['Close'].iloc[i] < df_all['Close'].iloc[i-1]: obv_list.append(obv_list[-1] - df_all['Volume'].iloc[i])
+    else: obv_list.append(obv_list[-1])
 df_all['OBV'] = obv_list
 df_all['OBV_MA5'] = df_all['OBV'].rolling(window=5).mean()
 
-low_kdj = df_all['Low'].rolling(window=9).min()
-high_kdj = df_all['High'].rolling(window=9).max()
-rsv = (df_all['Close'] - low_kdj) / (high_kdj - low_kdj) * 100
-rsv = rsv.fillna(50.0)
-
+low_kdj = df_all['Low'].rolling(window=9).min(); high_kdj = df_all['High'].rolling(window=9).max()
+rsv = ((df_all['Close'] - low_kdj) / (high_kdj - low_kdj) * 100).fillna(50.0)
 k_list, d_list = [50.0], [50.0]
 for val in rsv:
-    current_k = (2/3) * k_list[-1] + (1/3) * val
-    current_d = (2/3) * d_list[-1] + (1/3) * current_k
-    k_list.append(current_k)
-    d_list.append(current_d)
+    k_list.append((2/3) * k_list[-1] + (1/3) * val)
+    d_list.append((2/3) * d_list[-1] + (1/3) * k_list[-1])
+df_all['K'] = k_list[1:]; df_all['D'] = d_list[1:]; df_all['J'] = 3 * df_all['K'] - 2 * df_all['D']
 
-df_all['K'] = k_list[1:]
-df_all['D'] = d_list[1:]
-df_all['J'] = 3 * df_all['K'] - 2 * df_all['D']
-
+# 擷取指定觀測天數
 df = df_all.tail(check_days).copy()
+df['Date_Str'] = df.index.strftime('%Y-%m-%d')
 
 # 籌碼牆 POC 計算
-price_min = float(df['Low'].min())
-price_max = float(df['High'].max())
-bins = 12
-bin_edges = np.linspace(price_min, price_max, bins + 1)
+price_min, price_max = float(df['Low'].min()), float(df['High'].max())
+bins = 12; bin_edges = np.linspace(price_min, price_max, bins + 1)
 df['Bin'] = pd.cut(df['Close'], bins=bin_edges, labels=False, include_lowest=True)
 volume_profile = df.groupby('Bin', observed=False)['Volume'].sum().fillna(0)
 bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 top_bins = volume_profile.sort_values(ascending=False).index
-
 try:
-    poc_1 = bin_centers[top_bins[0]]
-    poc_2 = bin_centers[top_bins[1]] if len(top_bins) > 1 else poc_1
-    poc_3 = bin_centers[top_bins[2]] if len(top_bins) > 2 else poc_1
+    poc_1 = bin_centers[top_bins[0]]; poc_2 = bin_centers[top_bins[1]]; poc_3 = bin_centers[top_bins[2]]
 except:
-    poc_1 = df['Close'].mean()
-    poc_2 = poc_1
-    poc_3 = poc_1
-
-df['x_index'] = np.arange(len(df))
-date_labels = df.index.strftime('%m-%d').tolist()
-
-step = max(1, len(df) // 8)
-tick_indices = df['x_index'].iloc[::step].tolist()
-tick_labels = [date_labels[i] for i in tick_indices]
+    poc_1 = df['Close'].mean(); poc_2 = poc_1; poc_3 = poc_1
 
 # ==========================================
-# 🎨 繪圖與動態指標疊加
+# 🎨 Plotly 智慧互動圖表渲染引擎
 # ==========================================
-plt.style.use('dark_background')
+# 建立主圖 (包含 K 線與疊加指標)
+fig = go.Figure()
 
-k_width = max(1.2, 7.0 - (check_days / 35.0))
-line_width = max(0.6, 1.5 - (check_days / 200.0))
-
-fig_main, ax1 = plt.subplots(figsize=(11, 4.5))
-
-# 🛠️ 優先層：一目均衡表雲帶（最底層）
+# 1. 一目均衡表雲帶 (優先繪製在底層)
 if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
-    ax1.plot(df['x_index'], df['Senkou_Span_A'], color='#556b2f', linewidth=0.8, alpha=0.5)
-    ax1.plot(df['x_index'], df['Senkou_Span_B'], color='#8b4513', linewidth=0.8, alpha=0.5)
-    ax1.fill_between(
-        df['x_index'], df['Senkou_Span_A'], df['Senkou_Span_B'],
-        where=df['Senkou_Span_A'] >= df['Senkou_Span_B'], color='#00ff00', alpha=0.04
-    )
-    ax1.fill_between(
-        df['x_index'], df['Senkou_Span_A'], df['Senkou_Span_B'],
-        where=df['Senkou_Span_A'] < df['Senkou_Span_B'], color='#ff0000', alpha=0.04
-    )
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'))
+    fig.add_trace(go.Scatter(
+        x=df['Date_Str'], y=df['Senkou_Span_B'], 
+        fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', 
+        line=dict(width=0), name='一目雲帶', hoverinfo='skip'
+    ))
 
-# 1. 繪製 K 線基本引線與實體
-ax1.vlines(df['x_index'], df['Low'], df['High'], color='#aaaaaa', linewidth=line_width)
-colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
-ax1.vlines(df['x_index'], df['Open'], df['Close'], color=colors, linewidth=k_width, alpha=1.0)
+# 2. 核心 K 線圖
+fig.add_trace(go.Candlestick(
+    x=df['Date_Str'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+    name='K線', text=df['Volume'].apply(lambda x: f"量: {x:.1f}張"),
+    increasing_line_color='#ff3333', increasing_fillcolor='#ff3333',
+    decreasing_line_color='#00cc66', decreasing_fillcolor='#00cc66'
+))
 
-# 2. 動態疊加均線系統 (MA)
+# 3. 均線系統
 if "5日均線 (MA5)" in overlay_options:
-    ax1.plot(df['x_index'], df['MA5'], color='#17becf', linewidth=1.5, label='MA5', alpha=0.8)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA5'], line=dict(color='#17becf', width=1.5), name='MA5'))
 if "20日均線 (MA20)" in overlay_options:
-    ax1.plot(df['x_index'], df['MA20'], color='#e377c2', linewidth=1.8, label='MA20', alpha=0.8)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA20'], line=dict(color='#e377c2', width=1.8), name='MA20'))
 if "60日均線 (MA60)" in overlay_options:
-    ax1.plot(df['x_index'], df['MA60'], color='#9467bd', linewidth=2.0, label='MA60', alpha=0.8)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['MA60'], line=dict(color='#9467bd', width=2.0), name='MA60'))
 
-# 3. 動態疊加布林通道 (BB)
+# 4. 布林通道
 if "布林通道 (Bollinger)" in overlay_options:
-    ax1.plot(df['x_index'], df['BB_Up'], color='#ff4d4d', linestyle=':', linewidth=1.3, label='BB Upper')
-    ax1.plot(df['x_index'], df['BB_Low'], color='#ff4d4d', linestyle=':', linewidth=1.3, label='BB Lower')
-    ax1.fill_between(df['x_index'], df['BB_Up'], df['BB_Low'], color='#ff0000', alpha=0.02)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['BB_Up'], line=dict(color='#ff4d4d', width=1, dash='dot'), name='布林上軌'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['BB_Low'], line=dict(color='#ff4d4d', width=1, dash='dot'), name='布林下軌', fill='tonexty', fillcolor='rgba(255,0,0,0.02)'))
 
-# 4. 動態疊加肯特納通道 (KC)
+# 5. 肯特納通道
 if "肯特納通道 (Keltner)" in overlay_options:
-    ax1.plot(df['x_index'], df['KC_Up'], color='#00bfff', linestyle='-', linewidth=1.2, label='KC Upper')
-    ax1.plot(df['x_index'], df['KC_Low'], color='#00bfff', linestyle='-', linewidth=1.2, label='KC Lower')
-    ax1.fill_between(df['x_index'], df['KC_Up'], df['KC_Low'], color='#00bfff', alpha=0.02)
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['KC_Up'], line=dict(color='#00bfff', width=1), name='肯特納上軌'))
+    fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['KC_Low'], line=dict(color='#00bfff', width=1), name='肯特納下軌', fill='tonexty', fillcolor='rgba(0,191,255,0.02)'))
 
-# 5. 動態疊加拋物線指標 (SAR) — 💡 升級版：紅綠智慧雙色點系統！
+# 6. 智慧紅綠變色 SAR
 if "拋物線指標 (SAR)" in overlay_options:
-    # 分離多頭點（下方）與空頭點（上方）
-    long_points = df[df['SAR_Type'] == 'long']
-    short_points = df[df['SAR_Type'] == 'short']
-    
-    # 繪製多頭安全點（紅點）
-    if not long_points.empty:
-        ax1.scatter(long_points['x_index'], long_points['SAR'], color='#ff3333', s=8, marker='o', label='SAR 多頭波段', alpha=0.9)
-    # 繪製空頭警戒點（綠點）
-    if not short_points.empty:
-        ax1.scatter(short_points['x_index'], short_points['SAR'], color='#00cc66', s=8, marker='o', label='SAR 空頭壓力', alpha=0.9)
+    long_pts = df[df['SAR_Type'] == 'long']
+    short_pts = df[df['SAR_Type'] == 'short']
+    if not long_pts.empty:
+        fig.add_trace(go.Scatter(x=long_pts['Date_Str'], y=long_pts['SAR'], mode='markers', marker=dict(color='#ff3333', size=5), name='SAR多頭支撐'))
+    if not short_pts.empty:
+        fig.add_trace(go.Scatter(x=short_pts['Date_Str'], y=short_pts['SAR'], mode='markers', marker=dict(color='#00cc66', size=5), name='SAR空頭壓力'))
 
-# 6. 動態疊加籌碼成本牆（POC）
+# 7. 籌碼成本牆 (POC) — 水平切線
 if "籌碼成本牆 (POC)" in overlay_options:
-    ax1.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1: {poc_1:.1f}')
-    ax1.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
-    ax1.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, label=f'POC 3: {poc_3:.1f}')
+    fig.add_shape(type="line", x0=0, y0=poc_1, x1=len(df)-1, y1=poc_1, line=dict(color="#ff1a1a", width=2))
+    fig.add_shape(type="line", x0=0, y0=poc_2, x1=len(df)-1, y1=poc_2, line=dict(color="#ff6600", width=1.5, dash="dash"))
+    fig.add_shape(type="line", x0=0, y0=poc_3, x1=len(df)-1, y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"))
+    # 加註標籤供懸停或直觀閱讀
+    fig.add_trace(go.Scatter(x=[df['Date_Str'].iloc[0]], y=[poc_1], mode="text", text=[f"POC1: {poc_1:.1f}"], textposition="top right", showlegend=False, hoverinfo='skip'))
 
-ax1.set_title(f"TW Stock {ticker_input} ({check_days} Days Real Price Chart)", color='yellow', fontsize=14)
-ax1.grid(True, color='#222222', alpha=0.5)
-ax1.legend(loc='upper left', fontsize=9)
-ax1.set_xticks(tick_indices)
-ax1.set_xticklabels(tick_labels, rotation=0, fontsize=9)
+# 配置主圖排版
+fig.update_layout(
+    title=f"📈 {ticker_input} 互動看盤主圖 ({check_days}天)",
+    template="plotly_dark",
+    xaxis_rangeslider_visible=False, # 關閉下方礙眼的滑塊
+    height=500,
+    margin=dict(l=10, r=10, t=40, b=10),
+    hovermode="x unified" # 🎯 靈魂功能：滑鼠指到 X 軸，該日所有指標數據在同一個視窗彈出！
+)
+st.plotly_chart(fig, use_container_width=True)
 
-st.pyplot(fig_main)
 
 # ==========================================
-# 📈 副圖指標控制艙
+# 📈 副圖指標控制艙 (同樣採用極致互動)
 # ==========================================
 st.write("### 📈 副圖指標控制艙")
 tab1, tab2, tab3 = st.tabs(["📊 經典成交量", "⚡ 專業 KDJ 指標", "🌊 OBV 籌碼動能"])
 
 with tab1:
-    fig_vol, ax_vol = plt.subplots(figsize=(11, 2.5))
-    v_width = max(0.2, 0.7 - (check_days / 400.0))
-    ax_vol.bar(df['x_index'], df['Volume'], color=colors, width=v_width, alpha=0.9)
-    ax_vol.set_ylabel('Volume (張)', color='white', fontsize=9)
-    ax_vol.grid(True, color='#222222', alpha=0.5)
-    ax_vol.set_xticks(tick_indices)
-    ax_vol.set_xticklabels(tick_labels, rotation=0, fontsize=9)
-    st.pyplot(fig_vol)
+    fig_vol = go.Figure()
+    vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
+    fig_vol.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, name='成交量(張)'))
+    fig_vol.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified")
+    st.plotly_chart(fig_vol, use_container_width=True)
 
 with tab2:
-    fig_kdj, ax_kdj = plt.subplots(figsize=(11, 2.5))
-    ax_kdj.plot(df['x_index'], df['K'], color='white', linewidth=1.2, label='K (9)')
-    ax_kdj.plot(df['x_index'], df['D'], color='yellow', linewidth=1.2, label='D (3)')
-    ax_kdj.plot(df['x_index'], df['J'], color='magenta', linewidth=1.0, linestyle='--', label='J (3)')
-    ax_kdj.axhline(y=80, color='red', linestyle=':', linewidth=1, alpha=0.5)
-    ax_kdj.axhline(y=20, color='green', linestyle=':', linewidth=1, alpha=0.5)
-    ax_kdj.set_ylabel('KDJ Value', color='yellow', fontsize=9)
-    ax_kdj.grid(True, color='#222222', alpha=0.5)
-    ax_kdj.legend(loc='upper left', fontsize=8)
-    ax_kdj.set_xticks(tick_indices)
-    ax_kdj.set_xticklabels(tick_labels, rotation=0, fontsize=9)
-    st.pyplot(fig_kdj)
+    fig_kdj = go.Figure()
+    fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['K'], line=dict(color='white', width=1.2), name='K'))
+    fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['D'], line=dict(color='yellow', width=1.2), name='D'))
+    fig_kdj.add_trace(go.Scatter(x=df['Date_Str'], y=df['J'], line=dict(color='magenta', width=1, dash='dash'), name='J'))
+    fig_kdj.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified")
+    st.plotly_chart(fig_kdj, use_container_width=True)
 
 with tab3:
-    fig_obv, ax_obv = plt.subplots(figsize=(11, 2.5))
-    ax_obv.plot(df['x_index'], df['OBV'], color='#00ffff', linewidth=1.5, label='OBV Flow')
-    ax_obv.plot(df['x_index'], df['OBV_MA5'], color='#ffff00', linestyle=':', linewidth=1.0, label='OBV MA5')
-    ax_obv.set_ylabel('OBV Volume', color='#00ffff', fontsize=9)
-    ax_obv.grid(True, color='#222222', alpha=0.5)
-    ax_obv.legend(loc='upper left', fontsize=8)
-    ax_obv.set_xticks(tick_indices)
-    ax_obv.set_xticklabels(tick_labels, rotation=0, fontsize=9)
-    st.pyplot(fig_obv)
+    fig_obv = go.Figure()
+    fig_obv.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV'], line=dict(color='#00ffff', width=1.5), name='OBV'))
+    fig_obv.add_trace(go.Scatter(x=df['Date_Str'], y=df['OBV_MA5'], line=dict(color='#ffff00', width=1, dash='dot'), name='OBV_MA5'))
+    fig_obv.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified")
+    st.plotly_chart(fig_obv, use_container_width=True)
 
 st.write("### 📝 近期交易數據明細")
 st.dataframe(df[['Open', 'High', 'Low', 'Close', 'Volume']].tail(10))
