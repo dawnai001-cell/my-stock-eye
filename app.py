@@ -20,15 +20,15 @@ check_days = st.sidebar.slider("請選擇觀測天數：", min_value=5, max_valu
 
 st.sidebar.write("---")
 st.sidebar.subheader("📈 主圖疊加武器庫")
-# 💡 這裡擴充了選單，加入了肯特納通道！
+# 💡 預設（default）加入了 "籌碼成本牆 (POC)"，讓它一打開網頁就在，但你可以隨時把它叉掉隱藏！
 overlay_options = st.sidebar.multiselect(
     "請勾選欲顯示的主圖指標：",
-    ["5日均線 (MA5)", "20日均線 (MA20)", "60日均線 (MA60)", "布林通道 (Bollinger)", "肯特納通道 (Keltner)"],
-    default=[]
+    ["籌碼成本牆 (POC)", "5日均線 (MA5)", "20日均線 (MA20)", "60日均線 (MA60)", "布林通道 (Bollinger)", "肯特納通道 (Keltner)"],
+    default=["籌碼成本牆 (POC)"]
 )
 
 st.sidebar.write("---")
-st.sidebar.info("💡 頂級看盤體驗：\n現在你可以將「布林」與「肯特納」分開單獨看、同時看，或者都不看。看不懂精髓時就一個一個點開，慢慢培養敏銳度！")
+st.sidebar.info("💡 終極自由度：\n現在連籌碼牆 (POC) 都能自由關閉了。當你想專心看布林或肯特納的軌道時，關掉籌碼牆可以讓畫面變得極致純粹！")
 
 # ==========================================
 # 📊 數據獲取與計算（自動判斷上市/上櫃）
@@ -84,7 +84,6 @@ df_all['BB_Low'] = df_all['BB_Mid'] - (2 * df_all['BB_Std'])
 
 # 3. 肯特納通道計算 (20 EMA 中軌 +/- 2倍 ATR 真實波動幅度)
 df_all['KC_Mid'] = df_all['Close'].ewm(span=20, adjust=False).mean()
-# 計算 ATR (真實活動幅度)
 high_low = df_all['High'] - df_all['Low']
 high_close = (df_all['High'] - df_all['Close'].shift()).abs()
 low_close = (df_all['Low'] - df_all['Close'].shift()).abs()
@@ -187,10 +186,12 @@ if "肯特納通道 (Keltner)" in overlay_options:
     ax1.plot(df['x_index'], df['KC_Low'], color='#00bfff', linestyle='-', linewidth=1.2, label='KC Lower')
     ax1.fill_between(df['x_index'], df['KC_Up'], df['KC_Low'], color='#00bfff', alpha=0.02)
 
-# 5. 繪製籌碼成本牆（POC）
-ax1.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1: {poc_1:.1f}')
-ax1.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
-ax1.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, label=f'POC 3: {poc_3:.1f}')
+# 5. 動態疊加籌碼成本牆（POC）
+# 💡 現在只有在選單有勾選時，這三條籌碼牆才會畫出來喔！
+if "籌碼成本牆 (POC)" in overlay_options:
+    ax1.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1: {poc_1:.1f}')
+    ax1.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
+    ax1.axhline(y=poc_3, color='#ffcc00', linestyle=':', linewidth=1.5, alpha=0.6, label=f'POC 3: {poc_3:.1f}')
 
 ax1.set_title(f"TW Stock {ticker_input} ({check_days} Days Real Price Chart)", color='yellow', fontsize=14)
 ax1.grid(True, color='#222222', alpha=0.5)
