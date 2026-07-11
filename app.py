@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與排版
 st.set_page_config(page_title="台股籌碼天眼網頁版", layout="wide")
 
-st.title("📊 台股籌碼天眼 - 查價完全體 (副圖歸位、全指標聯動)")
+st.title("📊 台股籌碼天眼 - 終極完全體")
 
 # =======================================================
 # 側邊欄控制面板
@@ -16,7 +16,24 @@ st.title("📊 台股籌碼天眼 - 查價完全體 (副圖歸位、全指標聯
 st.sidebar.header("🛠️ 交易控制台")
 
 ticker_input = st.sidebar.text_input("請輸入台股代號（如 2317 或 6788）：", value="2317").strip()
-check_days = st.sidebar.slider("請選擇觀測天數：", min_value=5, max_value=200, value=90, step=5)
+
+# 週期切換（置於主圖上方）
+period_choice = st.radio(
+    "請選擇 K 線週期：",
+    ["📅 日線 (Daily)", "📆 週線 (Weekly)", "🌙 月線 (Monthly)"],
+    index=0,
+    horizontal=True
+)
+
+# 依週期設定 Slider 的預設與極值
+if "日線" in period_choice:
+    max_days, default_days, step_days, label = 300, 90, 5, "觀測天數 (日)"
+elif "週線" in period_choice:
+    max_days, default_days, step_days, label = 150, 52, 2, "觀測週數 (週)"
+else:
+    max_days, default_days, step_days, label = 60, 24, 1, "觀測月數 (月)"
+
+check_days = st.sidebar.slider(label, min_value=5, max_value=max_days, value=default_days, step=step_days)
 
 st.sidebar.write("---")
 st.sidebar.subheader("📈 主圖疊加武器庫")
@@ -35,19 +52,20 @@ sub_plot_choice = st.sidebar.radio(
 )
 
 # ==========================================
-# 📊 數據獲取與計算
+# 📊 數據獲取與週期重組 (Resampling)
 # ==========================================
 @st.cache_data(ttl=3600)
 def load_stock_data(ticker):
+    # 下載 2 年資料以確保週/月線計算指標時不會斷頭
     try:
-        df_yf = yf.download(f"{ticker}.TW", period="1y", progress=False)
+        df_yf = yf.download(f"{ticker}.TW", period="2y", progress=False)
         if not df_yf.empty and len(df_yf) > 2:
             return process_df(df_yf)
     except:
         pass
         
     try:
-        df_yf = yf.download(f"{ticker}.TWO", period="1y", progress=False)
+        df_yf = yf.download(f"{ticker}.TWO", period="2y", progress=False)
         if not df_yf.empty and len(df_yf) > 2:
             return process_df(df_yf)
     except:
@@ -66,24 +84,41 @@ def process_df(df_yf):
     df['Volume'] = df_yf['Volume'].astype(float) / 1000
     return df.dropna()
 
-df_all = load_stock_data(ticker_input)
+df_raw = load_stock_data(ticker_input)
 
-if df_all is None or len(df_all) == 0:
+if df_raw is None or len(df_raw) == 0:
     st.error("❌ 無法取得該股票數據，請檢查代號是否輸入正確。")
     st.stop()
 
+def resample_data(df, choice):
+    if "日線" in choice:
+        return df.copy()
+    rule = 'W-FRI' if "週線" in choice else 'ME'
+    resampled = df.resample(rule).agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum'
+    }).dropna()
+    return resampled
+
+df_all = resample_data(df_raw, period_choice)
+
 # ==========================================
-# 📈 指標計算艙
+# 📈 指標計算艙 (各週期全指標通吃)
 # ==========================================
 df_all['MA5'] = df_all['Close'].rolling(window=5).mean()
 df_all['MA20'] = df_all['Close'].rolling(window=20).mean()
 df_all['MA60'] = df_all['Close'].rolling(window=60).mean()
 
+# 布林
 df_all['BB_Mid'] = df_all['MA20']
 df_all['BB_Std'] = df_all['Close'].rolling(window=20).std()
 df_all['BB_Up'] = df_all['BB_Mid'] + (2 * df_all['BB_Std'])
 df_all['BB_Low'] = df_all['BB_Mid'] - (2 * df_all['BB_Std'])
 
+# 肯特納
 df_all['KC_Mid'] = df_all['Close'].ewm(span=20, adjust=False).mean()
 high_low = df_all['High'] - df_all['Low']
 high_close = (df_all['High'] - df_all['Close'].shift()).abs()
@@ -93,7 +128,7 @@ df_all['ATR'] = tr.rolling(window=20).mean()
 df_all['KC_Up'] = df_all['KC_Mid'] + (2 * df_all['ATR'])
 df_all['KC_Low'] = df_all['KC_Mid'] - (2 * df_all['ATR'])
 
-# SAR 計算
+# SAR
 sars = list(df_all['Low'].copy())
 sar_types = ["long"] * len(df_all)
 af = 0.02; max_af = 0.2; ep = df_all['High'].iloc[0]; is_long = True; sars[0] = df_all['Low'].iloc[0]
@@ -144,11 +179,15 @@ for val in rsv:
     d_list.append((2/3) * d_list[-1] + (1/3) * k_list[-1])
 df_all['K'] = k_list[1:]; df_all['D'] = d_list[1:]; df_all['J'] = 3 * df_all['K'] - 2 * df_all['D']
 
-# 🎯 擷取觀測天數
+# 裁切尾端數據
 df = df_all.tail(check_days).copy()
-df['Date_Str'] = df.index.strftime('%Y-%m-%d')
 
-# 籌碼牆 POC 計算
+if "月線" in period_choice:
+    df['Date_Str'] = df.index.strftime('%Y-%m')
+else:
+    df['Date_Str'] = df.index.strftime('%Y-%m-%d')
+
+# 籌碼牆 POC
 price_min, price_max = float(df['Low'].min()), float(df['High'].max())
 bins = 12; bin_edges = np.linspace(price_min, price_max, bins + 1)
 df['Bin'] = pd.cut(df['Close'], bins=bin_edges, labels=False, include_lowest=True)
@@ -162,7 +201,7 @@ except:
 
 
 # ==============================================================================
-# 🎨 畫布整合 (將 日期 + 疊加指標 + 副圖 完美封裝進 customdata)
+# 🎨 畫布整合
 # ==============================================================================
 fig = make_subplots(
     rows=2, cols=1, 
@@ -171,22 +210,26 @@ fig = make_subplots(
     row_heights=[0.70, 0.30]
 )
 
-# 🎯 後台資料打包
+# 打包查價框數據
 custom_hover_strings = []
 for i in range(len(df)):
     lines = []
+    p_tag = "週" if "週線" in period_choice else ("月" if "月線" in period_choice else "日")
+    
     if "5日均線 (MA5)" in overlay_options:
-        lines.append(f"MA5: {df['MA5'].iloc[i]:.2f}")
+        lines.append(f"{p_tag}5: {df['MA5'].iloc[i]:.2f}")
     if "20日均線 (MA20)" in overlay_options:
-        lines.append(f"MA20: {df['MA20'].iloc[i]:.2f}")
+        lines.append(f"{p_tag}20: {df['MA20'].iloc[i]:.2f}")
     if "60日均線 (MA60)" in overlay_options:
-        lines.append(f"MA60: {df['MA60'].iloc[i]:.2f}")
+        lines.append(f"{p_tag}60: {df['MA60'].iloc[i]:.2f}")
     if "布林通道 (Bollinger)" in overlay_options:
         lines.append(f"布林: {df['BB_Up'].iloc[i]:.2f} / {df['BB_Low'].iloc[i]:.2f}")
     if "肯特納通道 (Keltner)" in overlay_options:
         lines.append(f"肯特納: {df['KC_Up'].iloc[i]:.2f} / {df['KC_Low'].iloc[i]:.2f}")
     if "拋物線指標 (SAR)" in overlay_options:
         lines.append(f"SAR: {df['SAR'].iloc[i]:.2f}")
+    if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
+        lines.append(f"一目A: {df['Senkou_Span_A'].iloc[i]:.2f} | B: {df['Senkou_Span_B'].iloc[i]:.2f}")
     
     overlay_text = "<br>".join(lines) if lines else "無疊加指標"
     
@@ -200,6 +243,7 @@ for i in range(len(df)):
     custom_hover_strings.append([df['Date_Str'].iloc[i], f"{overlay_text}<br>--------------------<br>📊 {sub_text}"])
 
 # --------- 【主圖 (Row 1)】 ---------
+# 一目均衡表 (確保繪製在 K 線後方背景)
 if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_A'], line=dict(width=0), showlegend=False, hoverinfo='skip'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Senkou_Span_B'], fill='tonexty', fillcolor='rgba(0, 255, 0, 0.05)', line=dict(width=0), name='一目雲帶', hoverinfo='skip'), row=1, col=1)
@@ -241,7 +285,6 @@ if "籌碼成本牆 (POC)" in overlay_options:
     fig.add_shape(type="line", x0=df['Date_Str'].iloc[0], y0=poc_3, x1=df['Date_Str'].iloc[-1], y1=poc_3, line=dict(color="#ffcc00", width=1.5, dash="dot"), row=1, col=1)
 
 # --------- 【副圖 (Row 2)】 ---------
-# 🎯 這裡修正了 row=2 的指定，確保副圖一定會乖乖畫在下方畫布！
 if sub_plot_choice == "📊 經典成交量":
     vol_colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
     fig.add_trace(go.Bar(x=df['Date_Str'], y=df['Volume'], marker_color=vol_colors, marker_line_width=0, name='成交量(張)', hoverinfo='skip'), row=2, col=1)
@@ -260,7 +303,7 @@ fig.update_layout(
     template="plotly_dark",
     xaxis_rangeslider_visible=False,
     xaxis2_rangeslider_visible=False,
-    height=650,
+    height=620,
     margin=dict(l=10, r=10, t=10, b=10),
     hovermode="closest", 
     hoverlabel=dict(
@@ -278,21 +321,25 @@ fig.update_traces(hoverinfo="all", selector=dict(type='candlestick'))
 fig.update_layout(hoverdistance=100, spikedistance=1000)
 
 # 智慧時間軸標籤
-all_dates = df.index.strftime('%Y-%m-%d').tolist()
-tickvals, ticktexts, last_m = [], [], ""
+all_dates = df['Date_Str'].tolist()
+tickvals, ticktexts, last_year = [], [], ""
 for idx, date_str in enumerate(all_dates):
-    m_str = date_str[:7]
-    if m_str != last_m:
-        tickvals.append(df['Date_Str'].iloc[idx])
-        ticktexts.append(m_str)
-        last_m = m_str
+    year_str = date_str[:4]
+    if "月線" in period_choice:
+        if year_str != last_year:
+            tickvals.append(date_str)
+            ticktexts.append(year_str)
+            last_year = year_str
+    else:
+        if idx % (max(1, len(df)//6)) == 0:
+            tickvals.append(date_str)
+            ticktexts.append(date_str[2:])
 
 fig.update_xaxes(type='category', tickangle=0, showgrid=True, gridcolor='rgba(255,255,255,0.05)', row=2, col=1)
 fig.update_xaxes(tickmode='array', tickvals=tickvals, ticktext=ticktexts, row=2, col=1)
 fig.update_xaxes(type='category', showticklabels=False, row=1, col=1)
 fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.05)')
 
-# 強制十字準星線跨圖表
 fig.update_xaxes(showspikes=True, spikecolor="rgba(255, 255, 255, 0.4)", spikethickness=1, spikedash="dash", spikemode="across", row=1, col=1)
 fig.update_yaxes(showspikes=True, spikecolor="rgba(255, 255, 255, 0.4)", spikethickness=1, spikedash="dash", row=1, col=1)
 
