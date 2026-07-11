@@ -20,15 +20,14 @@ check_days = st.sidebar.slider("請選擇觀測天數：", min_value=5, max_valu
 
 st.sidebar.write("---")
 st.sidebar.subheader("📈 主圖疊加武器庫")
-# 💡 預設（default）加入了 "籌碼成本牆 (POC)"，讓它一打開網頁就在，但你可以隨時把它叉掉隱藏！
 overlay_options = st.sidebar.multiselect(
     "請勾選欲顯示的主圖指標：",
-    ["籌碼成本牆 (POC)", "5日均線 (MA5)", "20日均線 (MA20)", "60日均線 (MA60)", "布林通道 (Bollinger)", "肯特納通道 (Keltner)"],
+    ["籌碼成本牆 (POC)", "5日均線 (MA5)", "20日均線 (MA20)", "60日均線 (MA60)", "布林通道 (Bollinger)", "肯特納通道 (Keltner)", "拋物線指標 (SAR)", "一目均衡表 (Ichimoku Cloud)"],
     default=["籌碼成本牆 (POC)"]
 )
 
 st.sidebar.write("---")
-st.sidebar.info("💡 終極自由度：\n現在連籌碼牆 (POC) 都能自由關閉了。當你想專心看布林或肯特納的軌道時，關掉籌碼牆可以讓畫面變得極致純粹！")
+st.sidebar.info("💡 視覺化再進化：\n現在拋物線 (SAR) 升級為「紅綠智慧變色點」！點在 K 線下方顯示為紅點（多頭防禦），點在上方顯示為綠點（空頭施壓），看盤直覺度拉滿！")
 
 # ==========================================
 # 📊 數據獲取與計算（自動判斷上市/上櫃）
@@ -69,20 +68,20 @@ if df_all is None or len(df_all) == 0:
     st.stop()
 
 # ==========================================
-# 📈 核心與擴充指標計算
+# 📈 擴充指標計算艙
 # ==========================================
 # 1. 均線計算
 df_all['MA5'] = df_all['Close'].rolling(window=5).mean()
 df_all['MA20'] = df_all['Close'].rolling(window=20).mean()
 df_all['MA60'] = df_all['Close'].rolling(window=60).mean()
 
-# 2. 布林通道計算 (標準月線 20 MA +/- 2倍標準差)
+# 2. 布林通道計算
 df_all['BB_Mid'] = df_all['MA20']
 df_all['BB_Std'] = df_all['Close'].rolling(window=20).std()
 df_all['BB_Up'] = df_all['BB_Mid'] + (2 * df_all['BB_Std'])
 df_all['BB_Low'] = df_all['BB_Mid'] - (2 * df_all['BB_Std'])
 
-# 3. 肯特納通道計算 (20 EMA 中軌 +/- 2倍 ATR 真實波動幅度)
+# 3. 肯特納通道計算
 df_all['KC_Mid'] = df_all['Close'].ewm(span=20, adjust=False).mean()
 high_low = df_all['High'] - df_all['Low']
 high_close = (df_all['High'] - df_all['Close'].shift()).abs()
@@ -92,7 +91,63 @@ df_all['ATR'] = tr.rolling(window=20).mean()
 df_all['KC_Up'] = df_all['KC_Mid'] + (2 * df_all['ATR'])
 df_all['KC_Low'] = df_all['KC_Mid'] - (2 * df_all['ATR'])
 
-# 4. KDJ & OBV 計算
+# 4. 拋物線指標 (SAR) 附帶多空狀態紀錄
+sars = list(df_all['Low'].copy())
+sar_types = ["long"] * len(df_all) # 用來記錄這顆點點是在下方(long)還是上方(short)
+af = 0.02
+max_af = 0.2
+ep = df_all['High'].iloc[0]
+is_long = True
+sars[0] = df_all['Low'].iloc[0]
+
+for i in range(1, len(df_all)):
+    prev_sar = sars[i-1]
+    if is_long:
+        sars[i] = prev_sar + af * (ep - prev_sar)
+        sars[i] = min(sars[i], df_all['Low'].iloc[i-1], df_all['Low'].iloc[max(0, i-2)])
+        if df_all['Low'].iloc[i] < sars[i]:
+            is_long = False
+            sars[i] = ep
+            af = 0.02
+            ep = df_all['Low'].iloc[i]
+    else:
+        sars[i] = prev_sar + af * (ep - prev_sar)
+        sars[i] = max(sars[i], df_all['High'].iloc[i-1], df_all['High'].iloc[max(0, i-2)])
+        if df_all['High'].iloc[i] > sars[i]:
+            is_long = True
+            sars[i] = ep
+            af = 0.02
+            ep = df_all['High'].iloc[i]
+            
+    if is_long:
+        if df_all['High'].iloc[i] > ep:
+            ep = df_all['High'].iloc[i]
+            af = min(af + 0.02, max_af)
+    else:
+        if df_all['Low'].iloc[i] < ep:
+            ep = df_all['Low'].iloc[i]
+            af = min(af + 0.02, max_af)
+            
+    sar_types[i] = "long" if is_long else "short"
+
+df_all['SAR'] = sars
+df_all['SAR_Type'] = sar_types
+
+# 5. 一目均衡表 (Ichimoku Cloud) 計算
+high_9 = df_all['High'].rolling(window=9).max()
+low_9 = df_all['Low'].rolling(window=9).min()
+df_all['Tenkan_Sen'] = (high_9 + low_9) / 2
+
+high_26 = df_all['High'].rolling(window=26).max()
+low_26 = df_all['Low'].rolling(window=26).min()
+df_all['Kijun_Sen'] = (high_26 + low_26) / 2
+
+df_all['Senkou_Span_A'] = ((df_all['Tenkan_Sen'] + df_all['Kijun_Sen']) / 2).shift(26)
+high_52 = df_all['High'].rolling(window=52).max()
+low_52 = df_all['Low'].rolling(window=52).min()
+df_all['Senkou_Span_B'] = ((high_52 + low_52) / 2).shift(26)
+
+# 6. KDJ & OBV 計算
 df_all['Price_Change'] = df_all['Close'].diff()
 df_all['Is_Up'] = df_all['Close'] >= df_all['Open']
 
@@ -107,9 +162,9 @@ for i in range(1, len(df_all)):
 df_all['OBV'] = obv_list
 df_all['OBV_MA5'] = df_all['OBV'].rolling(window=5).mean()
 
-low_9 = df_all['Low'].rolling(window=9).min()
-high_9 = df_all['High'].rolling(window=9).max()
-rsv = (df_all['Close'] - low_9) / (high_9 - low_9) * 100
+low_kdj = df_all['Low'].rolling(window=9).min()
+high_kdj = df_all['High'].rolling(window=9).max()
+rsv = (df_all['Close'] - low_kdj) / (high_kdj - low_kdj) * 100
 rsv = rsv.fillna(50.0)
 
 k_list, d_list = [50.0], [50.0]
@@ -161,6 +216,19 @@ line_width = max(0.6, 1.5 - (check_days / 200.0))
 
 fig_main, ax1 = plt.subplots(figsize=(11, 4.5))
 
+# 🛠️ 優先層：一目均衡表雲帶（最底層）
+if "一目均衡表 (Ichimoku Cloud)" in overlay_options:
+    ax1.plot(df['x_index'], df['Senkou_Span_A'], color='#556b2f', linewidth=0.8, alpha=0.5)
+    ax1.plot(df['x_index'], df['Senkou_Span_B'], color='#8b4513', linewidth=0.8, alpha=0.5)
+    ax1.fill_between(
+        df['x_index'], df['Senkou_Span_A'], df['Senkou_Span_B'],
+        where=df['Senkou_Span_A'] >= df['Senkou_Span_B'], color='#00ff00', alpha=0.04
+    )
+    ax1.fill_between(
+        df['x_index'], df['Senkou_Span_A'], df['Senkou_Span_B'],
+        where=df['Senkou_Span_A'] < df['Senkou_Span_B'], color='#ff0000', alpha=0.04
+    )
+
 # 1. 繪製 K 線基本引線與實體
 ax1.vlines(df['x_index'], df['Low'], df['High'], color='#aaaaaa', linewidth=line_width)
 colors = ['#ff3333' if up else '#00cc66' for up in df['Is_Up']]
@@ -174,20 +242,32 @@ if "20日均線 (MA20)" in overlay_options:
 if "60日均線 (MA60)" in overlay_options:
     ax1.plot(df['x_index'], df['MA60'], color='#9467bd', linewidth=2.0, label='MA60', alpha=0.8)
 
-# 3. 動態疊加布林通道 (BB) — 紅色調點虛線
+# 3. 動態疊加布林通道 (BB)
 if "布林通道 (Bollinger)" in overlay_options:
     ax1.plot(df['x_index'], df['BB_Up'], color='#ff4d4d', linestyle=':', linewidth=1.3, label='BB Upper')
     ax1.plot(df['x_index'], df['BB_Low'], color='#ff4d4d', linestyle=':', linewidth=1.3, label='BB Lower')
     ax1.fill_between(df['x_index'], df['BB_Up'], df['BB_Low'], color='#ff0000', alpha=0.02)
 
-# 4. 動態疊加肯特納通道 (KC) — 藍色調線實線
+# 4. 動態疊加肯特納通道 (KC)
 if "肯特納通道 (Keltner)" in overlay_options:
     ax1.plot(df['x_index'], df['KC_Up'], color='#00bfff', linestyle='-', linewidth=1.2, label='KC Upper')
     ax1.plot(df['x_index'], df['KC_Low'], color='#00bfff', linestyle='-', linewidth=1.2, label='KC Lower')
     ax1.fill_between(df['x_index'], df['KC_Up'], df['KC_Low'], color='#00bfff', alpha=0.02)
 
-# 5. 動態疊加籌碼成本牆（POC）
-# 💡 現在只有在選單有勾選時，這三條籌碼牆才會畫出來喔！
+# 5. 動態疊加拋物線指標 (SAR) — 💡 升級版：紅綠智慧雙色點系統！
+if "拋物線指標 (SAR)" in overlay_options:
+    # 分離多頭點（下方）與空頭點（上方）
+    long_points = df[df['SAR_Type'] == 'long']
+    short_points = df[df['SAR_Type'] == 'short']
+    
+    # 繪製多頭安全點（紅點）
+    if not long_points.empty:
+        ax1.scatter(long_points['x_index'], long_points['SAR'], color='#ff3333', s=8, marker='o', label='SAR 多頭波段', alpha=0.9)
+    # 繪製空頭警戒點（綠點）
+    if not short_points.empty:
+        ax1.scatter(short_points['x_index'], short_points['SAR'], color='#00cc66', s=8, marker='o', label='SAR 空頭壓力', alpha=0.9)
+
+# 6. 動態疊加籌碼成本牆（POC）
 if "籌碼成本牆 (POC)" in overlay_options:
     ax1.axhline(y=poc_1, color='#ff1a1a', linestyle='-', linewidth=2.5, alpha=0.8, label=f'POC 1: {poc_1:.1f}')
     ax1.axhline(y=poc_2, color='#ff6600', linestyle='--', linewidth=1.5, alpha=0.7, label=f'POC 2: {poc_2:.1f}')
