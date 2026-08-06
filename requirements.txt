@@ -1,6 +1,8 @@
 streamlit
+yfinance
 pandas
 numpy
-matplotlib
-yfinance
 plotly
+backtesting
+matplotlib
+seaborn
