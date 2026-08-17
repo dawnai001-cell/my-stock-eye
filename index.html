@@ -115,7 +115,7 @@
         .subchart-header {
             position: absolute;
             top: 4px;
-            right: 8px;
+            left: 8px; /* 副圖下拉選單靠左對齊 */
             z-index: 10;
         }
         .subchart-header select {
@@ -306,16 +306,13 @@
                     if (j_prev > 50 && j_curr <= 50) isSell = true;
                 } else {
                     // --- 買進訊號判定 ---
-                    // 模式一：當天 J 由下至上突破 50 且 OSC > 0
                     const j_cross_up_today = (j_prev <= 50 && j_curr > 50);
                     const mode1_buy = j_cross_up_today && (h_curr > 0);
 
-                    // 模式二：柱狀體由負轉正 且 前一天 J 由下至上突破 50
                     const osc_turn_pos = (h_prev <= 0 && h_curr > 0);
                     const j_cross_up_yesterday = (j_prev2 <= 50 && j_prev > 50);
                     const mode2_buy = osc_turn_pos && j_cross_up_yesterday;
 
-                    // 第二條件：當日 Close > VWAP19
                     const price_above_vwap = (c_curr > v19_curr);
 
                     if ((mode1_buy || mode2_buy) && price_above_vwap) {
@@ -323,16 +320,13 @@
                     }
 
                     // --- 賣出訊號判定 ---
-                    // 模式一：當天 J 由上至下跌破 50 且 OSC < 0
                     const j_cross_down_today = (j_prev >= 50 && j_curr < 50);
                     const mode1_sell = j_cross_down_today && (h_curr < 0);
 
-                    // 模式二：柱狀體由正轉負 且 前一天 J 由上至下跌破 50
                     const osc_turn_neg = (h_prev >= 0 && h_curr < 0);
                     const j_cross_down_yesterday = (j_prev2 >= 50 && j_prev < 50);
                     const mode2_sell = osc_turn_neg && j_cross_down_yesterday;
 
-                    // 第二條件：當日 Close < VWAP19
                     const price_below_vwap = (c_curr < v19_curr);
 
                     if ((mode1_sell || mode2_sell) && price_below_vwap) {
@@ -359,10 +353,11 @@
                     mode: 'markers',
                     type: 'scatter',
                     name: '買進訊號',
+                    cliponaxis: false, // 允許標記顯示在邊界外，防止被裁切
                     marker: {
                         symbol: 'triangle-up',
                         size: markerSize,
-                        color: '#ef5350', // 紅色向上箭頭
+                        color: '#ef5350',
                         line: { color: '#ffffff', width: 1.2 }
                     }
                 });
@@ -373,10 +368,11 @@
                     mode: 'markers',
                     type: 'scatter',
                     name: '賣出訊號',
+                    cliponaxis: false, // 允許標記顯示在邊界外，防止被裁切
                     marker: {
                         symbol: 'triangle-down',
                         size: markerSize,
-                        color: '#26a69a', // 綠色向下箭頭
+                        color: '#26a69a',
                         line: { color: '#ffffff', width: 1.2 }
                     }
                 });
@@ -453,18 +449,24 @@
             return traces;
         }
 
-        function getBaseLayout(titleText) {
+        // 通用 Layout 設定 (支援傳入 N 棒數進行強制作對齊)
+        function getBaseLayout(titleText, N) {
             return {
                 title: { text: '', font: { color: '#f8fafc', size: 11 }, x: 0.01, y: 0.98 },
-                margin: { l: 20, r: 20, t: 10, b: 5 },
+                // 固定左右邊距：左留 45px、右留 35px、頂 4px、底 2px
+                margin: { l: 20, r: 11, t: 4, b: 2 },
                 paper_bgcolor: '#000000',
                 plot_bgcolor: '#000000',
                 showlegend: false,
                 xaxis: {
                     type: 'category',
                     gridcolor: '#262626',
+                    showgrid: true,
                     tickfont: { color: '#737373', size: 9 },
-                    rangeslider: { visible: false }
+                    rangeslider: { visible: false },
+                    // 強制鎖定 X 軸範圍（0 到 N-1 棒），消除右側空隙
+                    range: [-0.5, N - 0.5],
+                    autorange: false
                 },
                 yaxis: {
                     gridcolor: '#262626',
@@ -491,7 +493,7 @@
 
                 const data1 = stock[p1];
                 const mainTraces = buildMainTraces(data1, o1, N, style.width, p1);
-                const mainLayout = getBaseLayout('');
+                const mainLayout = getBaseLayout('', N);
 
                 Plotly.react('mainChart1', mainTraces, mainLayout, { responsive: true, displayModeBar: false });
                 renderSubChart('subChart1', data1, sub1, N);
@@ -511,18 +513,18 @@
                 const data2 = stock[p2];
 
                 const t1 = buildMainTraces(data1, o1, N1, style1.width, p1);
-                const l1 = getBaseLayout('');
+                const l1 = getBaseLayout('', N1);
                 Plotly.react('dualMainChart1', t1, l1, { responsive: true, displayModeBar: false });
 
                 const t2 = buildMainTraces(data2, o1, N2, style2.width, p2);
-                const l2 = getBaseLayout('');
+                const l2 = getBaseLayout('', N2);
                 Plotly.react('dualMainChart2', t2, l2, { responsive: true, displayModeBar: false });
             }
         }
 
         function renderSubChart(targetDiv, data, subOpt, N) {
             const traces = buildSubTraces(data, subOpt, N);
-            const layout = getBaseLayout('');
+            const layout = getBaseLayout('', N);
 
             if (subOpt === 'mj') {
                 const mjOscSlice = data.mj_osc.slice(-N);
